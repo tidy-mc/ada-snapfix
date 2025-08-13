@@ -1,4 +1,18 @@
+// Type declarations for axe-core
+declare global {
+  var axe: {
+    registerCheck: (check: any) => void;
+    registerRule: (rule: any) => void;
+  };
+}
+
 export function registerCustomRules() {
+  // Check if we're in a browser environment and axe is available
+  if (typeof window === 'undefined' || typeof axe === 'undefined') {
+    console.warn('Axe-core not available, skipping custom rules registration');
+    return;
+  }
+
   // Vague link text check
   axe.registerCheck({
     id: "vague-link-text",
