@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "app/api/scan/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs"
+}
