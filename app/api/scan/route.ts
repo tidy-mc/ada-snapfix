@@ -40,16 +40,29 @@ export async function POST(request: NextRequest) {
 
     console.log('Starting scan for URL:', url);
 
-    // Launch Playwright browser
+    // Launch Playwright browser with Vercel-specific options
     const browser = await chromium.launch({
       headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu'
+      ]
     });
 
     const page = await browser.newPage();
     
     console.log('Navigating to URL...');
-    // Navigate to the URL
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    // Navigate to the URL with timeout
+    await page.goto(url, { 
+      waitUntil: 'domcontentloaded',
+      timeout: 30000 
+    });
     console.log('Page loaded successfully');
 
     // Inject axe-core from CDN (more reliable in server environments)
@@ -60,13 +73,12 @@ export async function POST(request: NextRequest) {
     console.log('Axe-core injected from CDN');
     
     // Wait a moment for the script to load
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
 
     // Skip custom rules for now to test basic functionality
-    console.log('Skipping custom rules to test basic axe-core functionality');
+    console.log('Running basic axe-core analysis...');
 
-    // Run axe-core analysis
-    console.log('Running accessibility analysis...');
+    // Run axe-core analysis with error handling
     const axeResults: AxeResult = await page.evaluate(async () => {
       // Check if axe is available
       // @ts-ignore - axe is injected via script tag
@@ -74,8 +86,8 @@ export async function POST(request: NextRequest) {
         throw new Error('Axe-core not loaded');
       }
       
-             // @ts-ignore - axe is injected via script tag
-       return await axe.run(document);
+      // @ts-ignore - axe is injected via script tag
+      return await axe.run(document);
     });
 
     await browser.close();
@@ -110,8 +122,30 @@ export async function POST(request: NextRequest) {
 
   } catch (error) {
     console.error('Scan error:', error);
+    
+    // Return a more detailed error response
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const isPlaywrightError = errorMessage.includes('playwright') || errorMessage.includes('browser') || errorMessage.includes('Executable doesn\'t exist');
+    
+    if (isPlaywrightError && errorMessage.includes('Executable doesn\'t exist')) {
+      return NextResponse.json(
+        { 
+          error: 'Browser not installed', 
+          details: 'Playwright browser needs to be installed. This should be fixed automatically on the next deployment.',
+          type: 'browser_installation_error',
+          suggestion: 'Please redeploy the application to install the required browser'
+        },
+        { status: 503 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: 'Failed to scan URL', details: error instanceof Error ? error.message : 'Unknown error' },
+      { 
+        error: 'Failed to scan URL', 
+        details: errorMessage,
+        type: isPlaywrightError ? 'playwright_error' : 'general_error',
+        suggestion: isPlaywrightError ? 'Try again in a few moments or contact support' : 'Please check the URL and try again'
+      },
       { status: 500 }
     );
   }

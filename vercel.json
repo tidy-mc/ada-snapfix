@@ -1,10 +1,12 @@
 {
   "functions": {
     "app/api/scan/route.ts": {
-      "maxDuration": 60
+      "maxDuration": 60,
+      "memory": 3008
     }
   },
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
-  "framework": "nextjs"
+  "framework": "nextjs",
+  "installCommand": "npm install && npx playwright install chromium"
 }
