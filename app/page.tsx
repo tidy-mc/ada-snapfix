@@ -24,6 +24,10 @@ interface ScanResponse {
     simple?: number;
   };
   note?: string;
+  metadata?: {
+    launchStrategy?: string;
+    scanType?: string;
+  };
 }
 
 export default function Home() {
@@ -31,7 +35,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<ScanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scanType, setScanType] = useState<'full' | 'simple'>('full');
+  const [scanType, setScanType] = useState<'full' | 'simple'>('simple');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -42,13 +46,8 @@ export default function Home() {
     setResults(null);
 
     try {
-      // Try full scan first, fallback to simple scan
       let response;
-      let apiEndpoint = '/api/scan';
-      
-      if (scanType === 'simple') {
-        apiEndpoint = '/api/scan-simple';
-      }
+      let apiEndpoint = scanType === 'full' ? '/api/scan' : '/api/scan-simple';
 
       response = await fetch(apiEndpoint, {
         method: 'POST',
@@ -61,7 +60,7 @@ export default function Home() {
       if (!response.ok) {
         const errorData = await response.json();
         
-        // If full scan fails and we haven't tried simple scan yet, try simple scan
+        // If full scan fails, automatically try simple scan
         if (scanType === 'full' && errorData.type === 'browser_launch_error') {
           console.log('Full scan failed, trying simple scan...');
           const simpleResponse = await fetch('/api/scan-simple', {
@@ -168,24 +167,42 @@ export default function Home() {
                 <input
                   type="radio"
                   name="scanType"
-                  value="full"
-                  checked={scanType === 'full'}
-                  onChange={(e) => setScanType(e.target.value as 'full' | 'simple')}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Full Scan (Playwright + Axe)</span>
-              </label>
-              <label className="flex items-center">
-                <input
-                  type="radio"
-                  name="scanType"
                   value="simple"
                   checked={scanType === 'simple'}
                   onChange={(e) => setScanType(e.target.value as 'full' | 'simple')}
                   className="mr-2"
                 />
-                <span className="text-sm text-gray-700">Simple Scan (Basic Checks)</span>
+                <span className="text-sm text-gray-700 font-medium">Simple Scan (Basic Checks) - Always Works</span>
               </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="scanType"
+                  value="full"
+                  checked={scanType === 'full'}
+                  onChange={(e) => setScanType(e.target.value as 'full' | 'simple')}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Full Scan (Playwright + Axe) - Enhanced Testing</span>
+              </label>
+            </div>
+            
+            {/* Info Box */}
+            <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <svg className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Scan Options</h3>
+                  <div className="mt-2 text-sm text-blue-700">
+                    <p><strong>Simple Scan:</strong> Fast, reliable checks for basic accessibility issues. Works on all platforms.</p>
+                    <p><strong>Full Scan:</strong> Comprehensive testing with Playwright + Axe-core. May not work on all serverless platforms.</p>
+                  </div>
+                </div>
+              </div>
             </div>
           </form>
           
@@ -216,7 +233,9 @@ export default function Home() {
         {isLoading && (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Scanning website for accessibility issues...</p>
+            <p className="text-gray-600">
+              {scanType === 'full' ? 'Running comprehensive accessibility scan...' : 'Scanning website for accessibility issues...'}
+            </p>
           </div>
         )}
 
@@ -233,6 +252,11 @@ export default function Home() {
                   </p>
                   {results.note && (
                     <p className="text-sm text-blue-600 mt-1">{results.note}</p>
+                  )}
+                  {results.metadata?.launchStrategy && (
+                    <p className="text-sm text-gray-500 mt-1">
+                      Launch strategy: {results.metadata.launchStrategy}
+                    </p>
                   )}
                 </div>
                 <div className="text-right">
