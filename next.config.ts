@@ -1,7 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  serverExternalPackages: ['playwright-chromium'],
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals.push('playwright-chromium');
+    }
+    return config;
+  },
 };
 
 export default nextConfig;
