@@ -40,20 +40,42 @@ export async function POST(request: NextRequest) {
 
     console.log('Starting scan for URL:', url);
 
-    // Launch Playwright browser with Vercel-specific options
-    const browser = await chromium.launch({
-      headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu'
-      ]
-    });
+    // Try multiple browser launch strategies for Vercel compatibility
+    let browser;
+    try {
+      // First attempt: Standard launch
+      browser = await chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--single-process',
+          '--disable-gpu'
+        ]
+      });
+    } catch (launchError) {
+      console.log('Standard launch failed, trying alternative approach...');
+      
+      // Second attempt: Try with executable path
+      try {
+        browser = await chromium.launch({
+          headless: true,
+          executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage'
+          ]
+        });
+      } catch (altError) {
+        console.error('All browser launch attempts failed:', altError);
+        throw new Error('Unable to launch browser - Playwright installation issue');
+      }
+    }
 
     const page = await browser.newPage();
     
@@ -125,15 +147,18 @@ export async function POST(request: NextRequest) {
     
     // Return a more detailed error response
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const isPlaywrightError = errorMessage.includes('playwright') || errorMessage.includes('browser') || errorMessage.includes('Executable doesn\'t exist');
+    const isPlaywrightError = errorMessage.includes('playwright') || 
+                             errorMessage.includes('browser') || 
+                             errorMessage.includes('Executable doesn\'t exist') ||
+                             errorMessage.includes('Unable to launch browser');
     
-    if (isPlaywrightError && errorMessage.includes('Executable doesn\'t exist')) {
+    if (isPlaywrightError) {
       return NextResponse.json(
         { 
-          error: 'Browser not installed', 
-          details: 'Playwright browser needs to be installed. This should be fixed automatically on the next deployment.',
-          type: 'browser_installation_error',
-          suggestion: 'Please redeploy the application to install the required browser'
+          error: 'Browser launch failed', 
+          details: 'Playwright browser could not be launched. This may be due to serverless environment limitations.',
+          type: 'browser_launch_error',
+          suggestion: 'Consider using a different deployment platform or contact support for serverless Playwright setup'
         },
         { status: 503 }
       );
@@ -143,8 +168,8 @@ export async function POST(request: NextRequest) {
       { 
         error: 'Failed to scan URL', 
         details: errorMessage,
-        type: isPlaywrightError ? 'playwright_error' : 'general_error',
-        suggestion: isPlaywrightError ? 'Try again in a few moments or contact support' : 'Please check the URL and try again'
+        type: 'general_error',
+        suggestion: 'Please check the URL and try again'
       },
       { status: 500 }
     );

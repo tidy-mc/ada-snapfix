@@ -9,19 +9,21 @@ interface ScanResult {
   wcag: string[];
   severity: string;
   message: string;
-  source: 'axe';
+  source: 'axe' | 'simple';
 }
 
 interface ScanResponse {
   url: string;
   timestamp: string;
   totalIssues: number;
-  axe: any[];
+  axe?: any[];
   issues: ScanResult[];
   summary: {
     axe: number;
     pa11y: number;
+    simple?: number;
   };
+  note?: string;
 }
 
 export default function Home() {
@@ -29,6 +31,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<ScanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [scanType, setScanType] = useState<'full' | 'simple'>('full');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,7 +42,15 @@ export default function Home() {
     setResults(null);
 
     try {
-      const response = await fetch('/api/scan', {
+      // Try full scan first, fallback to simple scan
+      let response;
+      let apiEndpoint = '/api/scan';
+      
+      if (scanType === 'simple') {
+        apiEndpoint = '/api/scan-simple';
+      }
+
+      response = await fetch(apiEndpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -49,6 +60,26 @@ export default function Home() {
 
       if (!response.ok) {
         const errorData = await response.json();
+        
+        // If full scan fails and we haven't tried simple scan yet, try simple scan
+        if (scanType === 'full' && errorData.type === 'browser_launch_error') {
+          console.log('Full scan failed, trying simple scan...');
+          const simpleResponse = await fetch('/api/scan-simple', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ url: url.trim() }),
+          });
+          
+          if (simpleResponse.ok) {
+            const simpleData = await simpleResponse.json();
+            setResults(simpleData);
+            setScanType('simple');
+            return;
+          }
+        }
+        
         throw new Error(errorData.error || 'Failed to scan URL');
       }
 
@@ -79,9 +110,14 @@ export default function Home() {
   };
 
   const getSourceColor = (source: string) => {
-    return source === 'axe' 
-      ? 'bg-purple-100 text-purple-800 border-purple-200'
-      : 'bg-green-100 text-green-800 border-green-200';
+    switch (source) {
+      case 'axe':
+        return 'bg-purple-100 text-purple-800 border-purple-200';
+      case 'simple':
+        return 'bg-green-100 text-green-800 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
   };
 
   return (
@@ -124,6 +160,32 @@ export default function Home() {
                   {isLoading ? 'Scanning...' : 'Scan'}
                 </button>
               </div>
+            </div>
+            
+            {/* Scan Type Selection */}
+            <div className="flex items-center gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="scanType"
+                  value="full"
+                  checked={scanType === 'full'}
+                  onChange={(e) => setScanType(e.target.value as 'full' | 'simple')}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Full Scan (Playwright + Axe)</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="scanType"
+                  value="simple"
+                  checked={scanType === 'simple'}
+                  onChange={(e) => setScanType(e.target.value as 'full' | 'simple')}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700">Simple Scan (Basic Checks)</span>
+              </label>
             </div>
           </form>
           
@@ -169,6 +231,9 @@ export default function Home() {
                   <p className="text-sm text-gray-600 mt-1">
                     Scanned: {results.url}
                   </p>
+                  {results.note && (
+                    <p className="text-sm text-blue-600 mt-1">{results.note}</p>
+                  )}
                 </div>
                 <div className="text-right">
                   <div className="text-2xl font-bold text-gray-900">{results.totalIssues}</div>
@@ -178,40 +243,54 @@ export default function Home() {
               
               {/* Summary Stats */}
               <div className="flex gap-4 mt-4">
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
-                  <span className="text-sm text-gray-600">
-                    Axe: {results.summary.axe} issues
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="w-3 h-3 bg-green-500 rounded-full"></span>
-                  <span className="text-sm text-gray-600">
-                    Pa11y: {results.summary.pa11y} issues
-                  </span>
-                </div>
+                {results.summary.axe > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
+                    <span className="text-sm text-gray-600">
+                      Axe: {results.summary.axe} issues
+                    </span>
+                  </div>
+                )}
+                {results.summary.simple && results.summary.simple > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 bg-green-500 rounded-full"></span>
+                    <span className="text-sm text-gray-600">
+                      Simple: {results.summary.simple} issues
+                    </span>
+                  </div>
+                )}
+                {results.summary.pa11y > 0 && (
+                  <div className="flex items-center gap-2">
+                    <span className="w-3 h-3 bg-blue-500 rounded-full"></span>
+                    <span className="text-sm text-gray-600">
+                      Pa11y: {results.summary.pa11y} issues
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Raw Axe Results */}
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Raw Axe Results</h3>
-              {results.axe?.map((issue, idx) => (
-                <div key={idx} className="border p-3 my-3 rounded-lg bg-gray-50">
-                  <h4 className="font-medium text-gray-900 mb-2">
-                    {issue.id} — {issue.help}
-                  </h4>
-                  <p className="text-sm text-gray-600 mb-3">{issue.description}</p>
-                  <div className="space-y-2">
-                    {issue.nodes.map((node: any, i: number) => (
-                      <div key={i} className="text-xs font-mono bg-white p-2 rounded border">
-                        {node.target.join(", ")}
-                      </div>
-                    ))}
+            {results.axe && results.axe.length > 0 && (
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Raw Axe Results</h3>
+                {results.axe.map((issue, idx) => (
+                  <div key={idx} className="border p-3 my-3 rounded-lg bg-gray-50">
+                    <h4 className="font-medium text-gray-900 mb-2">
+                      {issue.id} — {issue.help}
+                    </h4>
+                    <p className="text-sm text-gray-600 mb-3">{issue.description}</p>
+                    <div className="space-y-2">
+                      {issue.nodes.map((node: any, i: number) => (
+                        <div key={i} className="text-xs font-mono bg-white p-2 rounded border">
+                          {node.target.join(", ")}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
 
             {/* Processed Issues List */}
             <div className="divide-y divide-gray-200">
