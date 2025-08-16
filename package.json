@@ -3,11 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "npx playwright install chromium && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install chromium",
+    "setup": "node install-chromium.js"
   },
   "dependencies": {
     "@sparticuz/chromium": "^138.0.2",

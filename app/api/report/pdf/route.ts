@@ -187,6 +187,9 @@ function generateHTMLReport(scan: any, issues: Issue[]): string {
 }
 
 export async function POST(request: NextRequest) {
+  let finalScan: any;
+  let issues: Issue[] = [];
+  
   try {
     const body = await request.json();
     
@@ -200,8 +203,6 @@ export async function POST(request: NextRequest) {
     }
 
     const { url, scan } = validation.data;
-    let finalScan = scan;
-    let issues: Issue[] = [];
 
     // If only URL provided, call existing scan API
     if (!scan && url) {
@@ -256,12 +257,33 @@ export async function POST(request: NextRequest) {
     }
 
     // Launch browser with @sparticuz/chromium
-    const browser = await puppeteer.launch({
-      args: chromium.args,
-      defaultViewport: { width: 1280, height: 720 },
-      executablePath: await chromium.executablePath(),
-      headless: true,
-    });
+    let browser;
+    try {
+      browser = await puppeteer.launch({
+        args: chromium.args,
+        defaultViewport: { width: 1280, height: 720 },
+        executablePath: await chromium.executablePath(),
+        headless: true,
+      });
+    } catch (error) {
+      console.log('Failed to launch with @sparticuz/chromium, trying system Chrome...');
+      
+      // Fallback to system Chrome for local development
+      try {
+        browser = await puppeteer.launch({
+          headless: true,
+          args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu'
+          ]
+        });
+      } catch (fallbackError) {
+        console.error('Both @sparticuz/chromium and system Chrome failed:', fallbackError);
+        throw new Error('Browser service not available');
+      }
+    }
 
     const page = await browser.newPage();
     
@@ -298,11 +320,19 @@ export async function POST(request: NextRequest) {
     console.error('PDF generation error:', error);
     
     if (error instanceof Error) {
-      if (error.message.includes('browser') || error.message.includes('chromium')) {
-        return NextResponse.json(
-          { error: 'PDF generation unavailable', details: 'Browser service not available' },
-          { status: 503 }
-        );
+      if (error.message.includes('browser') || error.message.includes('chromium') || error.message.includes('Browser service not available')) {
+        // Fallback: Return HTML instead of PDF
+        console.log('Browser unavailable, returning HTML fallback...');
+        const htmlContent = generateHTMLReport(finalScan, issues);
+        
+        return new NextResponse(htmlContent, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html',
+            'Content-Disposition': `attachment; filename="ada-snapfix-report-${new Date().toISOString().split('T')[0]}.html"`,
+            'Content-Length': htmlContent.length.toString()
+          }
+        });
       }
     }
     

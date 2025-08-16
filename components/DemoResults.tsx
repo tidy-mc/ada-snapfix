@@ -124,7 +124,14 @@ export default function DemoResults() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `ada-snapfix-report-${new Date().toISOString().split('T')[0]}.pdf`;
+      
+      // Check if it's HTML or PDF based on content type
+      const contentType = response.headers.get('content-type');
+      const isHtml = contentType && contentType.includes('text/html');
+      const extension = isHtml ? 'html' : 'pdf';
+      const filename = `ada-snapfix-report-${new Date().toISOString().split('T')[0]}.${extension}`;
+      
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -239,11 +246,11 @@ export default function DemoResults() {
                   <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
                   Generating...
                 </>
-              ) : (
-                <>
-                  📄 Download PDF
-                </>
-              )}
+                             ) : (
+                 <>
+                   📄 Download Report
+                 </>
+               )}
             </button>
             
             <div className="flex items-center gap-2">

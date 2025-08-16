@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import { z } from 'zod';
 import { SuggestRequest, SuggestResponse } from '@/lib/types';
 import { checkRateLimit, sanitizeHtmlSnippet } from '@/lib/utils';
+
+// Conditionally import OpenAI
+let OpenAI: any;
+try {
+  OpenAI = require('openai');
+} catch (error) {
+  console.log('OpenAI not available');
+}
 
 const suggestRequestSchema = z.object({
   issue: z.object({
@@ -13,10 +20,6 @@ const suggestRequestSchema = z.object({
     htmlSnippet: z.string().optional()
   }),
   tier: z.enum(['free', 'paid'], { required_error: 'Tier must be free or paid' })
-});
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export async function POST(request: NextRequest) {
@@ -81,6 +84,26 @@ ${tier === 'free'
   ? '- { "summary": "one-line fix description" }'
   : '- { "summary": "why it fails, 1-2 sentences", "code": "<code snippet or aria example>", "wcag": "mapped sc id with short note" }'
 }`;
+
+    // Check if OpenAI is available
+    if (!OpenAI) {
+      return NextResponse.json(
+        { error: 'AI service not configured', details: 'OpenAI package not available' },
+        { status: 503 }
+      );
+    }
+
+    // Create OpenAI client
+    const openai = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json(
+        { error: 'AI service not configured', details: 'OpenAI API key not set' },
+        { status: 503 }
+      );
+    }
 
     // Call OpenAI API
     const completion = await openai.chat.completions.create({
