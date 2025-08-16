@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import DemoResults from '../components/DemoResults';
 import ScanResults from '../components/ScanResults';
+import ScanLogs from '../components/ScanLogs';
 
 interface ScanResult {
   selector: string;
@@ -37,6 +38,7 @@ export default function Home() {
   const [results, setResults] = useState<ScanResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanType, setScanType] = useState<'full' | 'simple'>('simple');
+  const [showLogs, setShowLogs] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,51 +47,23 @@ export default function Home() {
     setIsLoading(true);
     setError(null);
     setResults(null);
+    setShowLogs(true);
 
-    try {
-      let response;
-      let apiEndpoint = scanType === 'full' ? '/api/scan' : '/api/scan-simple';
+    // For both scan types, we'll use the streaming logs component
+    // The actual scan will be handled by the ScanLogs component
+    return;
+  };
 
-      response = await fetch(apiEndpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ url: url.trim() }),
-      });
+  const handleScanComplete = (scanResults: ScanResponse) => {
+    setResults(scanResults);
+    setIsLoading(false);
+    setShowLogs(false);
+  };
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        
-        // If full scan fails, automatically try simple scan
-        if (scanType === 'full' && errorData.type === 'browser_launch_error') {
-          console.log('Full scan failed, trying simple scan...');
-          const simpleResponse = await fetch('/api/scan-simple', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ url: url.trim() }),
-          });
-          
-          if (simpleResponse.ok) {
-            const simpleData = await simpleResponse.json();
-            setResults(simpleData);
-            setScanType('simple');
-            return;
-          }
-        }
-        
-        throw new Error(errorData.error || 'Failed to scan URL');
-      }
-
-      const data = await response.json();
-      setResults(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleScanError = (errorMessage: string) => {
+    setError(errorMessage);
+    setIsLoading(false);
+    setShowLogs(false);
   };
 
 
@@ -205,12 +179,25 @@ export default function Home() {
         )}
 
         {/* Loading State */}
-        {isLoading && (
+        {isLoading && !showLogs && (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
             <p className="text-gray-600">
               {scanType === 'full' ? 'Running comprehensive accessibility scan...' : 'Scanning website for accessibility issues...'}
             </p>
+          </div>
+        )}
+
+        {/* Real-time Logs */}
+        {showLogs && (
+          <div className="mb-8">
+            <ScanLogs
+              isVisible={showLogs}
+              url={url}
+              scanType={scanType}
+              onComplete={handleScanComplete}
+              onError={handleScanError}
+            />
           </div>
         )}
 

@@ -50,3 +50,20 @@ export type SuggestResponse = {
   code?: string;
   wcag?: string;
 };
+
+export type AxeResult = {
+  violations: Array<{
+    id: string;
+    impact: string;
+    tags: string[];
+    description: string;
+    help: string;
+    helpUrl: string;
+    nodes: Array<{
+      html: string;
+      target: string[];
+      failureSummary: string;
+      impact: string;
+    }>;
+  }>;
+};

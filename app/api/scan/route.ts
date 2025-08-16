@@ -1,22 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chromium } from 'playwright-chromium';
-
-interface AxeResult {
-  violations: Array<{
-    id: string;
-    impact: string;
-    tags: string[];
-    description: string;
-    help: string;
-    helpUrl: string;
-    nodes: Array<{
-      html: string;
-      target: string[];
-      failureSummary: string;
-      impact: string;
-    }>;
-  }>;
-}
+import { AxeResult } from '@/lib/types';
 
 interface ScanResult {
   selector: string;
@@ -52,6 +36,212 @@ const getBrowserConfig = () => ({
 });
 
 export async function POST(request: NextRequest) {
+  // Check if client wants streaming logs
+  const acceptHeader = request.headers.get('accept');
+  const wantsStreaming = acceptHeader?.includes('text/event-stream');
+  
+  if (wantsStreaming) {
+    return handleStreamingScan(request);
+  }
+  
+  return handleRegularScan(request);
+}
+
+async function handleStreamingScan(request: NextRequest) {
+  const encoder = new TextEncoder();
+  const { url } = await request.json();
+
+  if (!url) {
+    return new Response(
+      `data: ${JSON.stringify({ error: 'URL is required' })}\n\n`,
+      {
+        status: 400,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          'Connection': 'keep-alive',
+        },
+      }
+    );
+  }
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const sendLog = (message: string, type: 'log' | 'error' | 'success' = 'log') => {
+        const data = JSON.stringify({ type, message, timestamp: new Date().toISOString() });
+        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+      };
+
+      try {
+        sendLog(`Starting enhanced scan for URL: ${url}`);
+        
+        // Enhanced browser launch with multiple fallback strategies
+        let browser;
+        let launchStrategy = 'standard';
+        
+        try {
+          // Strategy 1: Standard optimized launch
+          browser = await chromium.launch(getBrowserConfig());
+          sendLog('Browser launched successfully with standard strategy');
+        } catch (error1) {
+          sendLog('Standard launch failed, trying minimal config...');
+          launchStrategy = 'minimal';
+          
+          try {
+            // Strategy 2: Minimal configuration
+            browser = await chromium.launch({
+              headless: true,
+              args: [
+                '--no-sandbox',
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage'
+              ]
+            });
+            sendLog('Browser launched successfully with minimal strategy');
+          } catch (error2) {
+            sendLog('Minimal launch failed, trying with executable path...');
+            launchStrategy = 'executable-path';
+            
+            try {
+              // Strategy 3: With executable path
+              browser = await chromium.launch({
+                headless: true,
+                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
+              });
+              sendLog('Browser launched successfully with executable path strategy');
+            } catch (error3) {
+              sendLog('All browser launch strategies failed', 'error');
+              controller.close();
+              return;
+            }
+          }
+        }
+
+        const page = await browser.newPage();
+        sendLog('Navigating to URL...');
+        
+        // Optimize page settings for Vercel
+        await page.setViewportSize({ width: 1280, height: 720 });
+        
+        try {
+          await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+          sendLog('Page loaded successfully');
+        } catch (error) {
+          sendLog('Page load timeout, continuing with current state...');
+        }
+
+        // Inject axe-core
+        sendLog('Injecting axe-core...');
+        await page.addScriptTag({
+          url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.2/axe.min.js'
+        });
+
+        // Wait for axe to load
+        let axeLoaded = false;
+        let retryCount = 0;
+        while (!axeLoaded && retryCount < 3) {
+          try {
+            await page.waitForFunction(() => typeof (window as any).axe !== 'undefined', { timeout: 5000 });
+            axeLoaded = true;
+            sendLog('Axe-core injected successfully');
+          } catch (error) {
+            retryCount++;
+            sendLog(`Axe-core load attempt ${retryCount} failed, retrying...`);
+            await page.waitForTimeout(1000);
+          }
+        }
+
+        if (!axeLoaded) {
+          sendLog('Failed to load axe-core after 3 attempts', 'error');
+          await browser.close();
+          controller.close();
+          return;
+        }
+
+        // Run axe-core analysis with optimized configuration
+        sendLog('Running axe-core analysis...');
+        const axeResults: AxeResult = await page.evaluate(async () => {
+          // @ts-ignore - axe is injected via script tag
+          if (typeof axe === 'undefined') {
+            throw new Error('Axe-core not loaded');
+          }
+          
+          // @ts-ignore - axe is injected via script tag
+          return await axe.run(document, {
+            runOnly: {
+              type: 'tag',
+              values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
+            },
+            rules: {
+              'color-contrast': { enabled: true },
+              'document-title': { enabled: true },
+              'html-has-lang': { enabled: true },
+              'image-alt': { enabled: true },
+              'link-name': { enabled: true },
+              'list': { enabled: true },
+              'listitem': { enabled: true },
+              'page-has-heading-one': { enabled: true },
+              'region': { enabled: true }
+            }
+          });
+        });
+
+        await browser.close();
+        sendLog('Browser closed successfully');
+
+        // Convert axe results to our format
+        sendLog('Processing results...');
+        const allIssues: ScanResult[] = axeResults.violations.flatMap(violation =>
+          violation.nodes.map(node => ({
+            selector: node.target.join(', '),
+            ruleId: violation.id,
+            wcag: violation.tags.filter(tag => tag.startsWith('wcag2')),
+            severity: violation.impact || 'moderate',
+            message: node.failureSummary,
+            source: 'axe' as const,
+          }))
+        );
+
+        sendLog(`Scan completed successfully. Found ${allIssues.length} issues using ${launchStrategy} strategy.`, 'success');
+        
+        // Send final results
+        const results = {
+          url,
+          timestamp: new Date().toISOString(),
+          totalIssues: allIssues.length,
+          axe: axeResults.violations,
+          issues: allIssues,
+          summary: {
+            axe: allIssues.length,
+            pa11y: 0,
+          },
+          metadata: {
+            launchStrategy,
+            scanType: 'full'
+          }
+        };
+        
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'results', data: results })}\n\n`));
+        controller.close();
+        
+      } catch (error) {
+        sendLog(`Enhanced scan error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+async function handleRegularScan(request: NextRequest) {
   try {
     const { url } = await request.json();
 
@@ -110,38 +300,28 @@ export async function POST(request: NextRequest) {
     
     // Optimize page settings for Vercel
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.setExtraHTTPHeaders({
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    });
     
-    console.log('Navigating to URL...');
-    
-    // Navigate with optimized settings
-    await page.goto(url, { 
-      waitUntil: 'domcontentloaded',
-      timeout: 25000 // Reduced timeout for Vercel
-    });
-    console.log('Page loaded successfully');
+    try {
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+    } catch (error) {
+      console.log('Page load timeout, continuing with current state...');
+    }
 
-    // Inject axe-core with retry logic
-    console.log('Injecting axe-core...');
+    // Inject axe-core
+    await page.addScriptTag({
+      url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.7.2/axe.min.js'
+    });
+
+    // Wait for axe to load
     let axeLoaded = false;
     let retryCount = 0;
-    
     while (!axeLoaded && retryCount < 3) {
       try {
-        await page.addScriptTag({ 
-          url: 'https://cdnjs.cloudflare.com/ajax/libs/axe-core/4.10.3/axe.min.js' 
-        });
-        await page.waitForTimeout(1000 + (retryCount * 500)); // Progressive delay
+        await page.waitForFunction(() => typeof (window as any).axe !== 'undefined', { timeout: 5000 });
         axeLoaded = true;
-        console.log('Axe-core injected successfully');
       } catch (error) {
         retryCount++;
-        console.log(`Axe injection attempt ${retryCount} failed, retrying...`);
-        if (retryCount >= 3) {
-          throw new Error('Failed to load axe-core after multiple attempts');
-        }
+        await page.waitForTimeout(1000);
       }
     }
 
