@@ -186,6 +186,19 @@ export default function ScanResults({ results }: ScanResultsProps) {
             {results.note && (
               <p className="text-cyan-400 text-sm mb-1">{results.note}</p>
             )}
+            {results.metadata?.scanType === 'simple-fallback' && (
+              <div className="bg-gradient-to-r from-yellow-900/30 to-orange-900/30 border border-yellow-700/50 rounded-lg p-2 mb-2">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                  <span className="text-yellow-300 text-sm font-medium">Fallback Mode Active</span>
+                </div>
+                <p className="text-yellow-200 text-xs mt-1">
+                  Full scan failed on serverless environment. Using simple scan as fallback.
+                </p>
+              </div>
+            )}
             <div className="flex flex-wrap gap-3 text-xs text-gray-500">
               {results.metadata?.launchStrategy && (
                 <span className="flex items-center gap-1">

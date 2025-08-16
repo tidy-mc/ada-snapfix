@@ -111,7 +111,43 @@ async function handleStreamingScan(request: NextRequest) {
               });
               sendLog('Browser launched successfully with executable path strategy');
             } catch (error3) {
-              sendLog('All browser launch strategies failed', 'error');
+              sendLog('All browser launch strategies failed, falling back to simple scan...', 'error');
+              
+              // Fallback to simple scan when browser launch fails
+              try {
+                sendLog('Initiating simple scan fallback...');
+                
+                // Import and use simple scan logic
+                const { performSimpleScan } = await import('@/lib/simple-scan');
+                const simpleResults = await performSimpleScan(url);
+                
+                sendLog('Simple scan completed successfully');
+                
+                // Send results
+                const results = {
+                  url,
+                  timestamp: new Date().toISOString(),
+                  totalIssues: simpleResults.issues.length,
+                  issues: simpleResults.issues,
+                  summary: {
+                    axe: 0,
+                    pa11y: 0,
+                    simple: simpleResults.issues.length
+                  },
+                  note: 'Full scan failed, using simple scan as fallback',
+                  metadata: {
+                    launchStrategy: 'fallback',
+                    scanType: 'simple-fallback'
+                  }
+                };
+                
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'results', data: results })}\n\n`));
+                sendLog('Scan completed with fallback method', 'success');
+                
+              } catch (fallbackError) {
+                sendLog(`Fallback scan also failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`, 'error');
+              }
+              
               controller.close();
               return;
             }
