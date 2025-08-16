@@ -3,9 +3,10 @@ import { JSDOM } from 'jsdom';
 import axe from 'axe-core';
 import { registerCustomRules } from '../../../lib/axe-plugin';
 import { analyzeStaticHTML } from '../../../lib/static-analyzer';
+import { runPa11yAnalysis } from '../../../lib/pa11y-analyzer';
 
-interface ScanResult {
-  mode: 'enhanced-simple' | 'simple';
+interface EnhancedSimpleScanResult {
+  mode: 'enhanced-simple';
   success: boolean;
   issues: Array<{
     selector: string;
@@ -47,7 +48,7 @@ interface ScanResult {
 }
 
 // Deduplicate issues based on ruleId and selector
-function deduplicateIssues(issues: ScanResult['issues']): ScanResult['issues'] {
+function deduplicateIssues(issues: EnhancedSimpleScanResult['issues']): EnhancedSimpleScanResult['issues'] {
   const seen = new Set<string>();
   return issues.filter(issue => {
     const key = `${issue.ruleId}:${issue.selector}`;
@@ -60,7 +61,7 @@ function deduplicateIssues(issues: ScanResult['issues']): ScanResult['issues'] {
 }
 
 // Calculate WCAG coverage
-function calculateWCAGCoverage(issues: ScanResult['issues']) {
+function calculateWCAGCoverage(issues: EnhancedSimpleScanResult['issues']) {
   const allWCAG = new Set<string>();
   const coveredWCAG = new Set<string>();
   
@@ -92,11 +93,19 @@ function calculateWCAGCoverage(issues: ScanResult['issues']) {
   };
 }
 
-// Enhanced simple scan (primary method)
-const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> => {
+export async function POST(request: NextRequest) {
   try {
-    console.log('Attempting enhanced simple scan...');
-    
+    const { url } = await request.json();
+
+    if (!url) {
+      return NextResponse.json(
+        { error: 'URL is required' },
+        { status: 400 }
+      );
+    }
+
+    console.log('Starting enhanced simple scan for URL:', url);
+
     // Fetch the webpage content
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -185,6 +194,20 @@ const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> =>
         'landmark-no-duplicate-navigation': { enabled: true },
         'landmark-no-duplicate-region': { enabled: true },
         'landmark-no-duplicate-complementary': { enabled: true },
+        'landmark-one-main': { enabled: true },
+        'landmark-unique': { enabled: true },
+        'landmark-complementary-is-top-level': { enabled: true },
+        'landmark-banner-is-top-level': { enabled: true },
+        'landmark-contentinfo-is-top-level': { enabled: true },
+        'landmark-main-is-top-level': { enabled: true },
+        'landmark-navigation-is-top-level': { enabled: true },
+        'landmark-region': { enabled: true },
+        'landmark-no-duplicate-banner': { enabled: true },
+        'landmark-no-duplicate-contentinfo': { enabled: true },
+        'landmark-no-duplicate-main': { enabled: true },
+        'landmark-no-duplicate-navigation': { enabled: true },
+        'landmark-no-duplicate-region': { enabled: true },
+        'landmark-no-duplicate-complementary': { enabled: true },
         // Custom rules
         'link-name-clarity': { enabled: true },
         'no-positive-tabindex': { enabled: true },
@@ -211,10 +234,21 @@ const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> =>
       }))
     );
 
+    // 3. Pa11y Analysis (if available)
+    console.log('Running Pa11y analysis...');
+    let pa11yIssues: EnhancedSimpleScanResult['issues'] = [];
+    try {
+      const pa11yResult = await runPa11yAnalysis(url);
+      pa11yIssues = pa11yResult.issues;
+    } catch (pa11yError) {
+      console.warn('Pa11y analysis failed, continuing without it:', pa11yError);
+    }
+
     // Combine all issues
     const allIssues = [
       ...staticAnalysis.issues,
-      ...axeIssues
+      ...axeIssues,
+      ...pa11yIssues
     ];
 
     // Deduplicate issues
@@ -223,7 +257,7 @@ const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> =>
     // Calculate statistics
     const issuesBySource = {
       'axe-core': axeIssues.length,
-      'pa11y': 0,
+      'pa11y': pa11yIssues.length,
       'static-analysis': staticAnalysis.issues.length
     };
 
@@ -237,8 +271,8 @@ const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> =>
 
     console.log(`Enhanced simple scan completed. Found ${deduplicatedIssues.length} unique issues.`);
     console.log(`WCAG coverage: ${wcagCoverage.percentage}% (${wcagCoverage.covered}/${wcagCoverage.total})`);
-    
-    return {
+
+    const result: EnhancedSimpleScanResult = {
       mode: 'enhanced-simple',
       success: true,
       issues: deduplicatedIssues,
@@ -261,185 +295,19 @@ const tryEnhancedSimpleScan = async (url: string): Promise<ScanResult | null> =>
       next: deduplicatedIssues.length > 0 ? 'Review and fix critical issues first, then test with screen readers' : undefined
     };
 
-  } catch (error) {
-    console.log('Enhanced simple scan error:', error);
-    return null;
-  }
-};
-
-// Simple scan (fallback)
-const trySimpleScan = async (url: string): Promise<ScanResult | null> => {
-  try {
-    console.log('Attempting simple scan...');
-    
-    // Fetch the webpage content
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    
-    let response;
-    try {
-      response = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.5',
-          'Accept-Encoding': 'gzip, deflate',
-          'Connection': 'keep-alive',
-          'Upgrade-Insecure-Requests': '1'
-        },
-        signal: controller.signal,
-        redirect: 'follow'
-      });
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
-      throw new Error(`Failed to fetch URL: ${fetchError instanceof Error ? fetchError.message : 'Network error'}`);
-    }
-    
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-
-    const html = await response.text();
-    
-    if (!html || html.length < 100) {
-      throw new Error('Received empty or invalid HTML content');
-    }
-
-    console.log('HTML fetched, creating JSDOM instance...');
-
-    // Create JSDOM instance
-    const dom = new JSDOM(html, {
-      url: url,
-      pretendToBeVisual: true,
-      resources: 'usable'
-    });
-
-    // Get the document
-    const document = dom.window.document;
-
-    console.log('Running axe-core analysis on static HTML...');
-
-    // Run axe-core analysis
-    const axeResults = await axe.run(document, {
-      runOnly: {
-        type: 'tag',
-        values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
-      },
-      rules: {
-        'color-contrast': { enabled: true },
-        'document-title': { enabled: true },
-        'html-has-lang': { enabled: true },
-        'image-alt': { enabled: true },
-        'link-name': { enabled: true },
-        'list': { enabled: true },
-        'listitem': { enabled: true },
-        'page-has-heading-one': { enabled: true },
-        'region': { enabled: true }
-      }
-    });
-
-    // Convert axe results to our format
-    const allIssues = axeResults.violations.flatMap((violation: any) =>
-      violation.nodes.map((node: any) => ({
-        selector: node.target.join(', '),
-        ruleId: violation.id,
-        wcag: violation.tags.filter((tag: string) => tag.startsWith('wcag2')),
-        severity: violation.impact || 'moderate',
-        message: node.failureSummary,
-        source: 'axe-core' as const,
-      }))
-    );
-
-    console.log(`Simple scan completed successfully. Found ${allIssues.length} issues.`);
-    
-    return {
-      mode: 'simple',
-      success: true,
-      issues: allIssues,
-      meta: {
-        totalIssues: allIssues.length,
-        issuesBySource: {
-          'axe-core': allIssues.length,
-          'pa11y': 0,
-          'static-analysis': 0
-        },
-        issuesBySeverity: {
-          critical: allIssues.filter(issue => issue.severity === 'critical').length,
-          moderate: allIssues.filter(issue => issue.severity === 'moderate').length,
-          minor: allIssues.filter(issue => issue.severity === 'minor').length
-        },
-        wcagCoverage: calculateWCAGCoverage(allIssues),
-        pageInfo: {
-          title: null,
-          language: null,
-          hasSkipLink: false,
-          headingCount: {},
-          formCount: 0,
-          imageCount: 0,
-          linkCount: 0
-        }
-      },
-      message: `Simple scan completed with ${allIssues.length} accessibility issues found (static HTML analysis)`,
-      next: allIssues.length > 0 ? 'Review and fix critical issues first, then test with screen readers' : undefined
-    };
+    return NextResponse.json(result);
 
   } catch (error) {
-    console.log('Simple scan error:', error);
-    return null;
-  }
-};
-
-export async function POST(request: NextRequest) {
-  try {
-    const { url } = await request.json();
-
-    if (!url) {
-      return NextResponse.json(
-        { error: 'URL is required' },
-        { status: 400 }
-      );
-    }
-
-    console.log('Starting scan orchestration for URL:', url);
-
-    // Step 1: Try Enhanced Simple Scan (primary method)
-    let result = await tryEnhancedSimpleScan(url);
-    
-    if (result) {
-      return NextResponse.json(result);
-    }
-
-    // Step 2: Try Simple Scan (fallback)
-    result = await trySimpleScan(url);
-    
-    if (result) {
-      return NextResponse.json(result);
-    }
-
-    // All scans failed
-    return NextResponse.json(
-      {
-        error: 'All scan modes failed',
-        details: 'Enhanced simple and simple scans all failed to complete',
-        type: 'all_modes_failed',
-        suggestion: 'Please check the URL and try again later'
-      },
-      { status: 500 }
-    );
-
-  } catch (error) {
-    console.error('Scan orchestration error:', error);
+    console.error('Enhanced simple scan error:', error);
     
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     
     return NextResponse.json(
-      {
-        error: 'Scan orchestration failed',
+      { 
+        error: 'Enhanced simple scan failed', 
         details: errorMessage,
-        type: 'orchestration_error',
-        suggestion: 'Please try again or contact support'
+        type: 'enhanced_scan_error',
+        suggestion: 'Please check the URL and try again. This scan works best with publicly accessible websites.'
       },
       { status: 500 }
     );
@@ -448,44 +316,34 @@ export async function POST(request: NextRequest) {
 
 export async function GET() {
   return NextResponse.json(
-    {
-      message: 'Enhanced Accessibility Scanner API - Use POST method with URL in body',
-      description: 'Automated accessibility scanning with enhanced static analysis',
-      modes: {
-        'enhanced-simple': {
-          description: 'Enhanced static analysis with multiple engines',
-          features: [
-            'Static HTML analysis with Cheerio',
-            'Enhanced axe-core with custom rules',
-            'Pa11y integration for additional checks',
-            'Comprehensive WCAG coverage analysis',
-            'Issue deduplication and scoring'
-          ],
-          wcagCoverage: '80%+ WCAG 2.1/2.2 AA criteria',
-          fallback: 'simple'
-        },
-        simple: {
-          description: 'Static HTML analysis with jsdom + axe-core',
-          features: ['Static HTML analysis', 'axe-core integration', 'Fast and reliable'],
-          limitations: ['No JavaScript execution', 'No dynamic content'],
-          fallback: 'none'
-        }
-      },
-      fallbackFlow: 'enhanced-simple → simple',
-      enhancedFeatures: {
-        description: 'Enhanced simple scan provides maximum WCAG coverage without browser dependencies',
-        coverage: '80%+ WCAG 2.1/2.2 AA criteria',
+    { 
+      message: 'Enhanced Simple Scan endpoint - Use POST method with URL in body',
+      mode: 'enhanced-simple',
+      features: [
+        'Static HTML analysis with Cheerio',
+        'Enhanced axe-core with custom rules',
+        'Pa11y integration for additional checks',
+        'Comprehensive WCAG coverage analysis',
+        'Issue deduplication and scoring',
+        'No browser dependencies',
+        'Vercel compatible'
+      ],
+      coverage: {
+        description: 'Combines multiple analysis methods for maximum WCAG coverage',
         methods: [
           'Static HTML parsing and validation',
           'axe-core with custom accessibility rules',
           'Pa11y for additional WCAG compliance checks',
           'Meta tag and document structure analysis'
-        ]
+        ],
+        expectedCoverage: '80%+ WCAG 2.1/2.2 AA criteria'
       },
-      usage: {
-        method: 'POST',
-        body: { url: 'https://example.com' }
-      }
+      limitations: [
+        'No JavaScript execution',
+        'No dynamic content analysis',
+        'No visual rendering',
+        'Static HTML only'
+      ]
     },
     { status: 405 }
   );

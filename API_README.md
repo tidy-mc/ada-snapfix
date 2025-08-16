@@ -1,24 +1,65 @@
-# Scan API Documentation
+# Accessibility Scanner API Documentation
 
-## Endpoint: `/api/scan`
+This API provides a comprehensive accessibility scanning system with three modes and automatic fallback, optimized for Vercel deployment.
 
-This API route performs accessibility scanning on websites using Playwright and axe-core.
+## API Endpoints
 
-### Method: POST
+### Main Endpoint: `/api/scan` ⭐ **Recommended**
+**Status**: Fully compatible with Vercel with automatic fallback
 
-#### Request Body
+- **Method**: POST
+- **Body**: `{ "url": "https://example.com" }`
+- **Features**: 
+  - Automatic fallback between scan modes
+  - Always returns results (unless all modes fail)
+  - Optimized for Vercel deployment
+
+**Fallback Flow**: `Quick → External (if configured) → Simple`
+
+### Individual Mode Endpoints
+
+#### 1. Quick Scan (`/api/scan/quick`)
+**Status**: Vercel compatible with puppeteer-core + @sparticuz/chromium
+
+- **Method**: POST
+- **Body**: `{ "url": "https://example.com" }`
+- **Features**:
+  - JavaScript execution
+  - Dynamic content analysis
+  - Full axe-core analysis
+  - 15-second timeout
+  - Vercel optimized
+
+#### 2. External Scan (`/api/scan/external`)
+**Status**: Requires external service configuration
+
+- **Method**: POST
+- **Body**: `{ "url": "https://example.com", "serviceType": "browserless" }`
+- **Features**:
+  - JavaScript execution
+  - Dynamic content analysis
+  - Full axe-core analysis
+  - External browser service
+
+#### 3. Simple Scan (`/api/scan/simple`)
+**Status**: Static HTML analysis with jsdom + axe-core
+
+- **Method**: POST
+- **Body**: `{ "url": "https://example.com" }`
+- **Features**:
+  - Static HTML analysis
+  - axe-core integration
+  - Fast and reliable
+  - No JavaScript execution
+
+## Response Format
+
+All endpoints return consistent JSON format:
+
 ```json
 {
-  "url": "https://example.com"
-}
-```
-
-#### Response Format
-```json
-{
-  "url": "https://example.com",
-  "timestamp": "2024-01-01T00:00:00.000Z",
-  "totalIssues": 5,
+  "mode": "quick|external|simple",
+  "success": true,
   "issues": [
     {
       "selector": "body > div > img",
@@ -26,62 +67,144 @@ This API route performs accessibility scanning on websites using Playwright and 
       "wcag": ["wcag2a", "wcag111"],
       "severity": "critical",
       "message": "Images must have alternate text",
-      "source": "axe"
+      "source": "quick|external|simple"
     }
   ],
-  "summary": {
-    "axe": 5,
-    "pa11y": 0
-  }
+  "axe": { ... },
+  "message": "Quick scan completed with 5 accessibility issues found",
+  "next": "Review and fix critical issues first, then test with screen readers"
 }
 ```
 
-### Features
+## Usage Examples
 
-1. **Playwright Integration**: Uses Playwright Chromium for reliable browser automation
-2. **Axe-Core**: Comprehensive accessibility testing with configurable rules
-3. **WCAG Compliance**: Maps issues to WCAG guidelines
-
-### Usage Example
-
-```javascript
-const response = await fetch('/api/scan', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    url: 'https://your-website.com'
-  })
-});
-
-const result = await response.json();
-console.log('Accessibility issues:', result.issues);
-```
-
-### Testing
-
-Run the development server:
+### Main Endpoint (Recommended)
 ```bash
-npm run dev
+curl -X POST https://your-app.vercel.app/api/scan \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
 ```
 
-Then test the API:
+### Individual Modes
 ```bash
-node test-scan.js
+# Quick scan only
+curl -X POST https://your-app.vercel.app/api/scan/quick \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
+
+# External scan with specific service
+curl -X POST https://your-app.vercel.app/api/scan/external \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com", "serviceType": "browserless"}'
+
+# Simple scan only
+curl -X POST https://your-app.vercel.app/api/scan/simple \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
 ```
 
-### Configuration
+## Environment Variables
 
-The API includes several configurable axe-core rules:
-- `color-contrast`: Color contrast requirements
-- `document-title`: Page title requirements
-- `html-has-lang`: HTML language attribute
-- `image-alt`: Image alt text requirements
-- `link-name`: Link accessibility
-- `list` & `listitem`: List structure
-- `page-has-heading-one`: Page heading structure
-- `region`: Page regions
-- `skip-link`: Skip navigation links
+### For External Browser Services
+```bash
+# Browserless.io
+BROWSERLESS_TOKEN=your_browserless_api_key
+BROWSERLESS_URL=https://chrome.browserless.io
 
-You can modify these rules in the `route.ts` file under the `axe.run()` configuration.
+# Puppeteer Cloud
+PUPPETEER_CLOUD_TOKEN=your_puppeteer_cloud_api_key
+PUPPETEER_CLOUD_URL=https://api.puppeteer.cloud
+```
+
+## Scan Modes Comparison
+
+| Feature | Quick Scan | External Scan | Simple Scan |
+|---------|------------|---------------|-------------|
+| JavaScript Execution | ✅ | ✅ | ❌ |
+| Dynamic Content | ✅ | ✅ | ❌ |
+| Color Contrast | ✅ | ✅ | ✅ |
+| Form Validation | ✅ | ✅ | ✅ |
+| ARIA Analysis | ✅ | ✅ | ✅ |
+| Vercel Compatible | ✅ | ✅ | ✅ |
+| External Dependencies | ❌ | ✅ | ❌ |
+| Setup Required | ❌ | API Keys | ❌ |
+| Timeout | 15s | 30s | 15s |
+| Fallback | External | Simple | None |
+
+## Fallback Logic
+
+The main `/api/scan` endpoint implements intelligent fallback:
+
+1. **Quick Scan** (Default)
+   - Uses puppeteer-core + @sparticuz/chromium
+   - 15-second timeout
+   - Falls back to External if browser launch fails
+
+2. **External Scan** (Optional)
+   - Only tried if BROWSERLESS_TOKEN or PUPPETEER_CLOUD_TOKEN is configured
+   - Uses external browser service
+   - Falls back to Simple if service unavailable
+
+3. **Simple Scan** (Final Fallback)
+   - Static HTML analysis with jsdom + axe-core
+   - Always available
+   - No fallback (last resort)
+
+## Error Handling
+
+### Individual Mode Errors
+Each mode returns specific error information:
+```json
+{
+  "error": "Quick scan failed",
+  "details": "Browser launch timeout",
+  "type": "browser_error",
+  "fallback": "external"
+}
+```
+
+### All Modes Failed
+```json
+{
+  "error": "All scan modes failed",
+  "details": "Quick, external, and simple scans all failed to complete",
+  "type": "all_modes_failed",
+  "suggestion": "Please check the URL and try again later"
+}
+```
+
+## Best Practices
+
+1. **Use the main endpoint** (`/api/scan`) for production applications
+2. **Configure external services** for enhanced reliability
+3. **Handle fallback gracefully** in your applications
+4. **Monitor scan modes** to understand which mode is being used
+5. **Set appropriate timeouts** based on your requirements
+
+## Rate Limiting
+
+- **Quick Scan**: Limited by Vercel function timeout (15s)
+- **External Scan**: Subject to external service limits
+- **Simple Scan**: No rate limits (HTTP fetch only)
+
+## Deployment Notes
+
+### Vercel Configuration
+The API is optimized for Vercel with:
+- `@sparticuz/chromium` for browser compatibility
+- `puppeteer-core` for lightweight browser automation
+- `jsdom` for static HTML analysis
+- Automatic fallback between modes
+
+### Memory Allocation
+- Quick Scan: 3008MB (browser automation)
+- External Scan: 1024MB (API calls only)
+- Simple Scan: 1024MB (HTML processing)
+
+## Support
+
+For issues with:
+- **Quick Scan**: Check Vercel logs for browser launch errors
+- **External Scan**: Verify API keys and service status
+- **Simple Scan**: Check URL accessibility and HTML content
+- **General**: Review fallback flow and error messages

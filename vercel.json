@@ -3,6 +3,18 @@
     "app/api/scan/route.ts": {
       "maxDuration": 60,
       "memory": 3008
+    },
+    "app/api/scan/quick/route.ts": {
+      "maxDuration": 30,
+      "memory": 3008
+    },
+    "app/api/scan/external/route.ts": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "app/api/scan/simple/route.ts": {
+      "maxDuration": 30,
+      "memory": 1024
     }
   },
   "buildCommand": "npm run build",
