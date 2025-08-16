@@ -145,11 +145,11 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
   const getLogColor = (type: LogEntry['type']) => {
     switch (type) {
       case 'success':
-        return 'text-green-700 bg-green-50 border-green-200';
+        return 'text-green-300 bg-gradient-to-r from-green-900/30 to-emerald-900/30 border-green-700/50';
       case 'error':
-        return 'text-red-700 bg-red-50 border-red-200';
+        return 'text-red-300 bg-gradient-to-r from-red-900/30 to-pink-900/30 border-red-700/50';
       default:
-        return 'text-blue-700 bg-blue-50 border-blue-200';
+        return 'text-gray-300 bg-gradient-to-r from-gray-700/50 to-gray-600/50 border-gray-600/50';
     }
   };
 
@@ -158,37 +158,49 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
-      <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+    <div className="bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-xl border border-gray-700/50 overflow-hidden">
+      <div className="bg-gradient-to-r from-gray-700/80 to-gray-600/80 px-4 py-3 border-b border-gray-600/50">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">Scan Progress</h3>
+          <div className="flex items-center gap-3">
+            <div className="w-6 h-6 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 className="text-base font-semibold text-gray-200">Scan Progress</h3>
+          </div>
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}></div>
-            <span className="text-sm text-gray-600">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></div>
+            <span className="text-sm font-medium text-gray-400">
               {isComplete ? 'Complete' : isConnected ? 'Connected' : 'Connecting...'}
             </span>
           </div>
         </div>
       </div>
       
-      <div className="max-h-96 overflow-y-auto p-4 space-y-2">
+      <div className="max-h-64 overflow-y-auto p-4 space-y-2">
         {logs.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p>Waiting for scan to start...</p>
+            <div className="relative mx-auto mb-4">
+              <div className="w-10 h-10 border-4 border-gray-600 border-t-cyan-500 rounded-full animate-spin"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-5 h-5 bg-gradient-to-r from-cyan-500 to-blue-600 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+            <p className="text-gray-400 font-medium text-sm">Waiting for scan to start...</p>
           </div>
         ) : (
           logs.map((log, index) => (
             <div
               key={index}
-              className={`flex items-start gap-3 p-3 rounded-lg border ${getLogColor(log.type)}`}
+              className={`flex items-start gap-3 p-3 rounded-lg border transition-all duration-200 ${getLogColor(log.type)}`}
             >
               <div className="flex-shrink-0 mt-0.5">
                 {getLogIcon(log.type)}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium">{log.message}</p>
-                <p className="text-xs opacity-75 mt-1">
+                <p className="text-sm font-medium leading-relaxed">{log.message}</p>
+                <p className="text-xs text-gray-500 mt-1 font-mono">
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </p>
               </div>

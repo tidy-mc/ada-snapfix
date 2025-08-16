@@ -84,23 +84,23 @@ export default function DemoResults() {
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
       case 'critical':
-        return 'bg-red-100 text-red-800 border-red-200';
+        return 'bg-red-900/30 text-red-300 border-red-700';
       case 'serious':
-        return 'bg-orange-100 text-orange-800 border-orange-200';
+        return 'bg-orange-900/30 text-orange-300 border-orange-700';
       case 'moderate':
       case 'medium':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        return 'bg-yellow-900/30 text-yellow-300 border-yellow-700';
       case 'minor':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
+        return 'bg-blue-900/30 text-blue-300 border-blue-700';
       default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
+        return 'bg-gray-700/30 text-gray-300 border-gray-600';
     }
   };
 
   const getSourceColor = (source: string) => {
     return source === 'axe' 
-      ? 'bg-purple-100 text-purple-800 border-purple-200'
-      : 'bg-green-100 text-green-800 border-green-200';
+      ? 'bg-purple-900/30 text-purple-300 border-purple-700'
+      : 'bg-green-900/30 text-green-300 border-green-700';
   };
 
   const handleDownloadPDF = async () => {
@@ -198,67 +198,70 @@ export default function DemoResults() {
   }
 
   return (
-    <div className="bg-white rounded-lg shadow-md overflow-hidden">
+    <div className="bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-xl border border-gray-700/50 overflow-hidden">
       {/* Results Header */}
-      <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+      <div className="bg-gray-700/80 px-4 py-3 border-b border-gray-600/50">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-gray-900">Demo Scan Results</h2>
-            <p className="text-sm text-gray-600 mt-1">
+            <h2 className="text-lg font-semibold text-gray-200">Demo Scan Results</h2>
+            <p className="text-sm text-gray-400 mt-1">
               Scanned: {sampleResults.url}
             </p>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-400">
               Mode: {sampleResults.mode}
             </p>
           </div>
           <div className="text-right">
-            <div className="text-2xl font-bold text-gray-900">{sampleResults.totalIssues}</div>
-            <div className="text-sm text-gray-600">Total Issues</div>
+            <div className="text-xl font-bold text-gray-200">{sampleResults.totalIssues}</div>
+            <div className="text-sm text-gray-400">Total Issues</div>
           </div>
         </div>
         
         {/* Summary Stats */}
-        <div className="flex gap-4 mt-4">
+        <div className="flex gap-3 mt-3">
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-purple-500 rounded-full"></span>
-            <span className="text-sm text-gray-600">
+            <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
+            <span className="text-xs text-gray-400">
               Axe: {sampleResults.summary.axe} issues
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-3 h-3 bg-green-500 rounded-full"></span>
-            <span className="text-sm text-gray-600">
+            <span className="w-2 h-2 bg-green-500 rounded-full"></span>
+            <span className="text-xs text-gray-400">
               Pa11y: {sampleResults.summary.pa11y} issues
             </span>
           </div>
         </div>
 
         {/* PDF Download and Tier Toggle */}
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-200">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-600/50">
+          <div className="flex items-center gap-3">
             <button
               onClick={handleDownloadPDF}
               disabled={pdfLoading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              className="px-3 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 text-sm"
             >
               {pdfLoading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  Generating...
+                  <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Generating...</span>
                 </>
-                             ) : (
-                 <>
-                   📄 Download Report
-                 </>
-               )}
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                  <span>Download Report</span>
+                </>
+              )}
             </button>
             
             <div className="flex items-center gap-2">
-              <label className="text-sm text-gray-600">AI Tier:</label>
+              <label className="text-sm text-gray-300">AI Tier:</label>
               <select
                 value={isPaidTier ? 'paid' : 'free'}
                 onChange={(e) => setIsPaidTier(e.target.value === 'paid')}
-                className="text-sm border border-gray-300 rounded px-2 py-1"
+                className="text-sm border border-gray-600 rounded px-2 py-1 bg-gray-700/50 text-gray-200"
               >
                 <option value="free">Free</option>
                 <option value="paid">Paid</option>
@@ -269,14 +272,14 @@ export default function DemoResults() {
 
         {/* PDF Error */}
         {errors.pdf && (
-          <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-red-700 text-sm">
+          <div className="mt-2 p-2 bg-red-900/30 border border-red-700/50 rounded text-red-300 text-sm">
             {errors.pdf}
           </div>
         )}
       </div>
 
       {/* Issues List */}
-      <div className="divide-y divide-gray-200">
+      <div className="divide-y divide-gray-600/50">
         {sampleResults.issues.map((issue, index) => {
           const issueKey = `${issue.ruleId}-${issue.selector}`;
           const suggestion = suggestions[issueKey];
@@ -284,16 +287,16 @@ export default function DemoResults() {
           const error = errors[issueKey];
 
           return (
-            <div key={index} className="px-6 py-4 hover:bg-gray-50">
+            <div key={index} className="px-4 py-3 hover:bg-gray-700/30">
               <div className="flex items-start justify-between mb-2">
                 <div className="flex-1">
-                  <h3 className="text-sm font-medium text-gray-900 mb-1">
+                  <h3 className="text-sm font-medium text-gray-200 mb-1">
                     {issue.ruleId}
                   </h3>
-                  <p className="text-sm text-gray-600 mb-2">
+                  <p className="text-sm text-gray-400 mb-2">
                     {issue.message}
                   </p>
-                  <div className="text-xs text-gray-500 font-mono bg-gray-100 px-2 py-1 rounded">
+                  <div className="text-xs text-gray-500 font-mono bg-gray-700/50 px-2 py-1 rounded border border-gray-600/50">
                     {issue.selector}
                   </div>
                 </div>
