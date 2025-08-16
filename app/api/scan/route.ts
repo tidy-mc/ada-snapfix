@@ -326,8 +326,40 @@ async function handleRegularScan(request: NextRequest) {
           });
           console.log('Browser launched successfully with executable path strategy');
         } catch (error3) {
-          console.error('All browser launch strategies failed:', { error1, error2, error3 });
-          throw new Error('Unable to launch browser - all strategies failed');
+          console.error('All browser launch strategies failed, falling back to simple scan...');
+          
+          // Fallback to simple scan when browser launch fails
+          try {
+            console.log('Initiating simple scan fallback...');
+            
+            // Import and use simple scan logic
+            const { performSimpleScan } = await import('@/lib/simple-scan');
+            const simpleResults = await performSimpleScan(url);
+            
+            console.log('Simple scan completed successfully');
+            
+            // Return fallback results
+            return NextResponse.json({
+              url,
+              timestamp: new Date().toISOString(),
+              totalIssues: simpleResults.issues.length,
+              issues: simpleResults.issues,
+              summary: {
+                axe: 0,
+                pa11y: 0,
+                simple: simpleResults.issues.length
+              },
+              note: 'Full scan failed, using simple scan as fallback',
+              metadata: {
+                launchStrategy: 'fallback',
+                scanType: 'simple-fallback'
+              }
+            });
+            
+          } catch (fallbackError) {
+            console.error('Fallback scan also failed:', fallbackError);
+            throw new Error('Unable to launch browser and fallback scan failed');
+          }
         }
       }
     }
