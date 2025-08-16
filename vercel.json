@@ -3,6 +3,14 @@
     "app/api/scan/route.ts": {
       "maxDuration": 60,
       "memory": 3008
+    },
+    "app/api/report/pdf/route.ts": {
+      "maxDuration": 20,
+      "memory": 1024
+    },
+    "app/api/suggest/route.ts": {
+      "maxDuration": 15,
+      "memory": 512
     }
   },
   "buildCommand": "npm run build",

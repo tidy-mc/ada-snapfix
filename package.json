@@ -10,11 +10,15 @@
     "postinstall": "npx playwright install chromium"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "axe-core": "^4.10.3",
     "next": "15.4.6",
+    "openai": "^5.12.2",
     "playwright-chromium": "^1.54.2",
+    "puppeteer-core": "^24.16.2",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
