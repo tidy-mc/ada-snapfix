@@ -3,18 +3,23 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "next dev",
     "build": "npx playwright install chromium && next build",
     "start": "next start",
     "lint": "next lint",
-    "postinstall": "npx playwright install chromium"
+    "postinstall": "npx playwright install chromium",
+    "setup": "node install-chromium.js"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^138.0.2",
     "axe-core": "^4.10.3",
     "next": "15.4.6",
+    "openai": "^5.12.2",
     "playwright-chromium": "^1.54.2",
+    "puppeteer-core": "^24.16.2",
     "react": "19.1.0",
-    "react-dom": "19.1.0"
+    "react-dom": "19.1.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
