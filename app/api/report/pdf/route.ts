@@ -39,149 +39,12 @@ function generateHTMLReport(scan: any, issues: Issue[]): string {
   const severityCounts = getSeverityCounts(issues);
   const timestamp = new Date(scan.timestamp).toLocaleString();
   
-  const html = `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Accessibility Report - ${scan.url}</title>
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .header {
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 20px;
-            margin-bottom: 30px;
-        }
-        .score {
-            font-size: 2.5em;
-            font-weight: bold;
-            color: ${score >= 80 ? '#10b981' : score >= 60 ? '#f59e0b' : '#ef4444'};
-        }
-        .summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-        }
-        .severity-card {
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-        }
-        .critical { background-color: #fef2f2; border: 1px solid #fecaca; }
-        .serious { background-color: #fffbeb; border: 1px solid #fed7aa; }
-        .moderate { background-color: #fefce8; border: 1px solid #fde68a; }
-        .minor { background-color: #f0f9ff; border: 1px solid #bae6fd; }
-        .severity-count {
-            font-size: 1.5em;
-            font-weight: bold;
-        }
-        .issues-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 20px;
-        }
-        .issues-table th,
-        .issues-table td {
-            border: 1px solid #e5e7eb;
-            padding: 12px;
-            text-align: left;
-        }
-        .issues-table th {
-            background-color: #f9fafb;
-            font-weight: 600;
-        }
-        .impact-critical { color: #dc2626; font-weight: 600; }
-        .impact-serious { color: #ea580c; font-weight: 600; }
-        .impact-moderate { color: #d97706; font-weight: 600; }
-        .impact-minor { color: #2563eb; font-weight: 600; }
-        .selector {
-            font-family: monospace;
-            font-size: 0.9em;
-            background-color: #f3f4f6;
-            padding: 4px 8px;
-            border-radius: 4px;
-            word-break: break-all;
-        }
-        .wcag-tag {
-            background-color: #e0e7ff;
-            color: #3730a3;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.8em;
-        }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>Accessibility Report</h1>
-        <p><strong>URL:</strong> ${scan.url}</p>
-        <p><strong>Scanned:</strong> ${timestamp}</p>
-        <p><strong>Mode:</strong> ${scan.mode || 'standard'}</p>
-        <div class="score">Score: ${score}/100</div>
-    </div>
-
-    <div class="summary">
-        <div class="severity-card critical">
-            <div class="severity-count">${severityCounts.critical}</div>
-            <div>Critical</div>
-        </div>
-        <div class="severity-card serious">
-            <div class="severity-count">${severityCounts.serious}</div>
-            <div>Serious</div>
-        </div>
-        <div class="severity-card moderate">
-            <div class="severity-count">${severityCounts.moderate}</div>
-            <div>Moderate</div>
-        </div>
-        <div class="severity-card minor">
-            <div class="severity-count">${severityCounts.minor}</div>
-            <div>Minor</div>
-        </div>
-    </div>
-
-    <h2>Issues Found (${issues.length})</h2>
-    <table class="issues-table">
-        <thead>
-            <tr>
-                <th>Rule ID</th>
-                <th>WCAG</th>
-                <th>Impact</th>
-                <th>Message</th>
-                <th>Selector</th>
-            </tr>
-        </thead>
-        <tbody>
-            ${issues.map(issue => `
-                <tr>
-                    <td>${issue.ruleId || issue.id || 'N/A'}</td>
-                    <td>
-                        ${issue.wcag ? `<span class="wcag-tag">${issue.wcag}</span>` : 'N/A'}
-                    </td>
-                    <td class="impact-${issue.impact || 'moderate'}">
-                        ${(issue.impact || 'moderate').charAt(0).toUpperCase() + (issue.impact || 'moderate').slice(1)}
-                    </td>
-                    <td>${issue.message || issue.description || 'N/A'}</td>
-                    <td><span class="selector">${issue.selector || 'N/A'}</span></td>
-                </tr>
-            `).join('')}
-        </tbody>
-    </table>
-
-    <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #e5e7eb; font-size: 0.9em; color: #6b7280;">
-        <p>Report generated by Ada SnapFix Accessibility Scanner</p>
-        <p>For detailed fixes and suggestions, visit the web interface.</p>
-    </div>
-</body>
-</html>`;
+  // Limit issues to prevent oversized reports
+  const maxIssues = 100;
+  const limitedIssues = issues.slice(0, maxIssues);
+  const hasMoreIssues = issues.length > maxIssues;
+  
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Accessibility Report - ${scan.url}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;line-height:1.6;color:#333;max-width:800px;margin:0 auto;padding:20px}.header{border-bottom:2px solid #e5e7eb;padding-bottom:20px;margin-bottom:30px}.score{font-size:2.5em;font-weight:bold;color:${score>=80?'#10b981':score>=60?'#f59e0b':'#ef4444'}}.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:15px;margin:20px 0}.severity-card{padding:15px;border-radius:8px;text-align:center}.critical{background-color:#fef2f2;border:1px solid #fecaca}.serious{background-color:#fffbeb;border:1px solid #fed7aa}.moderate{background-color:#fefce8;border:1px solid #fde68a}.minor{background-color:#f0f9ff;border:1px solid #bae6fd}.severity-count{font-size:1.5em;font-weight:bold}.issues-table{width:100%;border-collapse:collapse;margin-top:20px}.issues-table th,.issues-table td{border:1px solid #e5e7eb;padding:12px;text-align:left}.issues-table th{background-color:#f9fafb;font-weight:600}.impact-critical{color:#dc2626;font-weight:600}.impact-serious{color:#ea580c;font-weight:600}.impact-moderate{color:#d97706;font-weight:600}.impact-minor{color:#2563eb;font-weight:600}.selector{font-family:monospace;font-size:.9em;background-color:#f3f4f6;padding:4px 8px;border-radius:4px;word-break:break-all}.wcag-tag{background-color:#e0e7ff;color:#3730a3;padding:2px 6px;border-radius:4px;font-size:.8em}</style></head><body><div class="header"><h1>Accessibility Report</h1><p><strong>URL:</strong> ${scan.url}</p><p><strong>Scanned:</strong> ${timestamp}</p><p><strong>Mode:</strong> ${scan.mode||'standard'}</p><div class="score">Score: ${score}/100</div></div><div class="summary"><div class="severity-card critical"><div class="severity-count">${severityCounts.critical}</div><div>Critical</div></div><div class="severity-card serious"><div class="severity-count">${severityCounts.serious}</div><div>Serious</div></div><div class="severity-card moderate"><div class="severity-count">${severityCounts.moderate}</div><div>Moderate</div></div><div class="severity-card minor"><div class="severity-count">${severityCounts.minor}</div><div>Minor</div></div></div><h2>Issues Found (${limitedIssues.length}${hasMoreIssues?` of ${issues.length}`:''})</h2>${hasMoreIssues?`<p><em>Showing first ${maxIssues} issues due to size limits. Full report available in web interface.</em></p>`:''}<table class="issues-table"><thead><tr><th>Rule ID</th><th>WCAG</th><th>Impact</th><th>Message</th><th>Selector</th></tr></thead><tbody>${limitedIssues.map(issue=>`<tr><td>${issue.ruleId||issue.id||'N/A'}</td><td>${issue.wcag?`<span class="wcag-tag">${issue.wcag}</span>`:'N/A'}</td><td class="impact-${issue.impact||'moderate'}">${(issue.impact||'moderate').charAt(0).toUpperCase()+(issue.impact||'moderate').slice(1)}</td><td>${(issue.message||issue.description||'N/A').substring(0,100)}${(issue.message||issue.description||'').length>100?'...':''}</td><td><span class="selector">${(issue.selector||'N/A').substring(0,50)}${(issue.selector||'').length>50?'...':''}</span></td></tr>`).join('')}</tbody></table><div style="margin-top:40px;padding-top:20px;border-top:1px solid #e5e7eb;font-size:.9em;color:#6b7280"><p>Report generated by Ada SnapFix Accessibility Scanner</p><p>For detailed fixes and suggestions, visit the web interface.</p></div></body></html>`;
 
   return html;
 }
@@ -248,40 +111,77 @@ export async function POST(request: NextRequest) {
     // Generate HTML report
     const htmlContent = generateHTMLReport(finalScan, issues);
     
-    // Check HTML size limit (rough estimate)
-    if (htmlContent.length > 50000) {
+    // Check HTML size limit (increased for larger reports)
+    if (htmlContent.length > 200000) {
       return NextResponse.json(
         { error: 'Report too large', details: 'HTML content exceeds size limit for PDF generation' },
         { status: 413 }
       );
     }
 
-    // Launch browser with @sparticuz/chromium
+    // Launch browser with multiple fallback strategies for Vercel compatibility
     let browser;
+    let launchStrategy = 'sparticuz';
+    
     try {
+      // Strategy 1: @sparticuz/chromium (optimized for Vercel)
       browser = await puppeteer.launch({
         args: chromium.args,
         defaultViewport: { width: 1280, height: 720 },
         executablePath: await chromium.executablePath(),
         headless: true,
       });
-    } catch (error) {
-      console.log('Failed to launch with @sparticuz/chromium, trying system Chrome...');
+      console.log('PDF browser launched successfully with @sparticuz/chromium');
+    } catch (error1) {
+      console.log('@sparticuz/chromium failed, trying minimal config...');
+      launchStrategy = 'minimal';
       
-      // Fallback to system Chrome for local development
       try {
+        // Strategy 2: Minimal configuration
         browser = await puppeteer.launch({
           headless: true,
           args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-gpu'
+            '--disable-gpu',
+            '--disable-web-security',
+            '--disable-features=VizDisplayCompositor'
           ]
         });
-      } catch (fallbackError) {
-        console.error('Both @sparticuz/chromium and system Chrome failed:', fallbackError);
-        throw new Error('Browser service not available');
+        console.log('PDF browser launched successfully with minimal config');
+      } catch (error2) {
+        console.log('Minimal config failed, trying with executable path...');
+        launchStrategy = 'executable-path';
+        
+        try {
+          // Strategy 3: With executable path
+          browser = await puppeteer.launch({
+            headless: true,
+            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage'
+            ]
+          });
+          console.log('PDF browser launched successfully with executable path');
+        } catch (error3) {
+          console.error('All PDF browser launch strategies failed, falling back to HTML...');
+          
+          // Fallback: Return HTML instead of PDF
+          console.log('Browser unavailable, returning HTML fallback...');
+          const htmlContent = generateHTMLReport(finalScan, issues);
+          
+          return new NextResponse(htmlContent, {
+            status: 200,
+            headers: {
+              'Content-Type': 'text/html',
+              'Content-Disposition': `attachment; filename="ada-snapfix-report-${new Date().toISOString().split('T')[0]}.html"`,
+              'Content-Length': htmlContent.length.toString()
+            }
+          });
+        }
       }
     }
 
@@ -319,25 +219,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('PDF generation error:', error);
     
-    if (error instanceof Error) {
-      if (error.message.includes('browser') || error.message.includes('chromium') || error.message.includes('Browser service not available')) {
-        // Fallback: Return HTML instead of PDF
-        console.log('Browser unavailable, returning HTML fallback...');
-        const htmlContent = generateHTMLReport(finalScan, issues);
-        
-        return new NextResponse(htmlContent, {
-          status: 200,
-          headers: {
-            'Content-Type': 'text/html',
-            'Content-Disposition': `attachment; filename="ada-snapfix-report-${new Date().toISOString().split('T')[0]}.html"`,
-            'Content-Length': htmlContent.length.toString()
-          }
-        });
-      }
-    }
-    
+    // If we get here, it means there was an error after browser launch
+    // (like PDF generation or page rendering issues)
     return NextResponse.json(
-      { error: 'Failed to generate PDF', details: 'Internal server error' },
+      { 
+        error: 'Failed to generate PDF', 
+        details: error instanceof Error ? error.message : 'Internal server error',
+        suggestion: 'Try downloading the HTML report instead'
+      },
       { status: 500 }
     );
   }
