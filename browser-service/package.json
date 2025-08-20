@@ -1,0 +1,18 @@
+{
+  "name": "playwright-browser-service",
+  "version": "1.0.0",
+  "description": "Playwright Browser Service for Vercel deployment",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "playwright": "^1.54.0",
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

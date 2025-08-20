@@ -35,6 +35,30 @@ const getBrowserConfig = () => ({
   ]
 });
 
+// Function to connect to external browser service
+async function connectToExternalBrowser(sendLog: (message: string, type?: 'log' | 'error' | 'success') => void) {
+  const browserServiceUrl = process.env.PLAYWRIGHT_BROWSER_WS_ENDPOINT;
+  
+  if (!browserServiceUrl) {
+    throw new Error('No external browser service configured');
+  }
+
+  try {
+    sendLog('Connecting to external browser service...');
+    
+    // Connect to the external browser service
+    const browser = await chromium.connect({
+      wsEndpoint: browserServiceUrl
+    });
+    
+    sendLog('Connected to external browser service successfully');
+    return browser;
+  } catch (error) {
+    sendLog(`Failed to connect to external browser service: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+    throw error;
+  }
+}
+
 export async function POST(request: NextRequest) {
   // Check if client wants streaming logs
   const acceptHeader = request.headers.get('accept');
@@ -77,79 +101,88 @@ async function handleStreamingScan(request: NextRequest) {
         
         // Enhanced browser launch with multiple fallback strategies
         let browser;
-        let launchStrategy = 'standard';
+        let launchStrategy = 'external';
         
         try {
-          // Strategy 1: Standard optimized launch
-          browser = await chromium.launch(getBrowserConfig());
-          sendLog('Browser launched successfully with standard strategy');
+          // Strategy 1: External browser service (if configured)
+          browser = await connectToExternalBrowser(sendLog);
+          launchStrategy = 'external-service';
         } catch (error1) {
-          sendLog('Standard launch failed, trying minimal config...');
-          launchStrategy = 'minimal';
+          sendLog('External browser service failed, trying local Playwright...');
           
           try {
-            // Strategy 2: Minimal configuration
-            browser = await chromium.launch({
-              headless: true,
-              args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage'
-              ]
-            });
-            sendLog('Browser launched successfully with minimal strategy');
+            // Strategy 2: Standard optimized launch
+            browser = await chromium.launch(getBrowserConfig());
+            sendLog('Browser launched successfully with standard strategy');
+            launchStrategy = 'standard';
           } catch (error2) {
-            sendLog('Minimal launch failed, trying with executable path...');
-            launchStrategy = 'executable-path';
+            sendLog('Standard launch failed, trying minimal config...');
+            launchStrategy = 'minimal';
             
             try {
-              // Strategy 3: With executable path
+              // Strategy 3: Minimal configuration
               browser = await chromium.launch({
                 headless: true,
-                executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
-                args: ['--no-sandbox', '--disable-setuid-sandbox']
+                args: [
+                  '--no-sandbox',
+                  '--disable-setuid-sandbox',
+                  '--disable-dev-shm-usage'
+                ]
               });
-              sendLog('Browser launched successfully with executable path strategy');
+              sendLog('Browser launched successfully with minimal strategy');
             } catch (error3) {
-              sendLog('All browser launch strategies failed, falling back to simple scan...', 'error');
+              sendLog('Minimal launch failed, trying with executable path...');
+              launchStrategy = 'executable-path';
               
-              // Fallback to simple scan when browser launch fails
               try {
-                sendLog('Initiating simple scan fallback...');
+                // Strategy 4: With executable path
+                browser = await chromium.launch({
+                  headless: true,
+                  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+                  args: ['--no-sandbox', '--disable-setuid-sandbox']
+                });
+                sendLog('Browser launched successfully with executable path strategy');
+              } catch (error4) {
+                sendLog('All browser launch strategies failed, falling back to simple scan...', 'error');
                 
-                // Import and use simple scan logic
-                const { performSimpleScan } = await import('@/lib/simple-scan');
-                const simpleResults = await performSimpleScan(url);
+                // Fallback to simple scan when browser launch fails
+                try {
+                  sendLog('Initiating simple scan fallback...');
+                  
+                  // Import and use simple scan logic
+                  const { performSimpleScan } = await import('@/lib/simple-scan');
+                  const simpleResults = await performSimpleScan(url);
+                  
+                  sendLog('Simple scan completed successfully');
+                  
+                  // Send results
+                  const results = {
+                    url,
+                    timestamp: new Date().toISOString(),
+                    totalIssues: simpleResults.issues.length,
+                    issues: simpleResults.issues,
+                    summary: {
+                      axe: 0,
+                      pa11y: 0,
+                      simple: simpleResults.issues.length
+                    },
+                    note: 'Full scan failed, using simple scan as fallback',
+                    metadata: {
+                      launchStrategy: 'fallback',
+                      scanType: 'simple-fallback'
+                    }
+                  };
+                  
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'results', data: results })}\n\n`));
+                  sendLog('Scan completed with fallback method', 'success');
+                  
+                } catch (fallbackError) {
+                  sendLog(`Fallback scan also failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`, 'error');
+                }
                 
-                sendLog('Simple scan completed successfully');
-                
-                // Send results
-                const results = {
-                  url,
-                  timestamp: new Date().toISOString(),
-                  totalIssues: simpleResults.issues.length,
-                  issues: simpleResults.issues,
-                  summary: {
-                    axe: 0,
-                    pa11y: 0,
-                    simple: simpleResults.issues.length
-                  },
-                  note: 'Full scan failed, using simple scan as fallback',
-                  metadata: {
-                    launchStrategy: 'fallback',
-                    scanType: 'simple-fallback'
-                  }
-                };
-                
-                controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'results', data: results })}\n\n`));
-                sendLog('Scan completed with fallback method', 'success');
-                
-              } catch (fallbackError) {
-                sendLog(`Fallback scan also failed: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown error'}`, 'error');
+                controller.close();
+                return;
               }
-              
-              controller.close();
-              return;
             }
           }
         }
@@ -292,73 +325,92 @@ async function handleRegularScan(request: NextRequest) {
 
     // Enhanced browser launch with multiple fallback strategies
     let browser;
-    let launchStrategy = 'standard';
+    let launchStrategy = 'external';
     
     try {
-      // Strategy 1: Standard optimized launch
-      browser = await chromium.launch(getBrowserConfig());
-      console.log('Browser launched successfully with standard strategy');
+      // Strategy 1: External browser service (if configured)
+      const browserServiceUrl = process.env.PLAYWRIGHT_BROWSER_WS_ENDPOINT;
+      
+      if (browserServiceUrl) {
+        console.log('Connecting to external browser service...');
+        browser = await chromium.connect({
+          wsEndpoint: browserServiceUrl
+        });
+        console.log('Connected to external browser service successfully');
+        launchStrategy = 'external-service';
+      } else {
+        throw new Error('No external browser service configured');
+      }
     } catch (error1) {
-      console.log('Standard launch failed, trying minimal config...');
-      launchStrategy = 'minimal';
+      console.log('External browser service failed, trying local Playwright...');
       
       try {
-        // Strategy 2: Minimal configuration
-        browser = await chromium.launch({
-          headless: true,
-          args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage'
-          ]
-        });
-        console.log('Browser launched successfully with minimal strategy');
+        // Strategy 2: Standard optimized launch
+        browser = await chromium.launch(getBrowserConfig());
+        console.log('Browser launched successfully with standard strategy');
+        launchStrategy = 'standard';
       } catch (error2) {
-        console.log('Minimal launch failed, trying with executable path...');
-        launchStrategy = 'executable-path';
+        console.log('Standard launch failed, trying minimal config...');
+        launchStrategy = 'minimal';
         
         try {
-          // Strategy 3: With executable path
+          // Strategy 3: Minimal configuration
           browser = await chromium.launch({
             headless: true,
-            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
+            args: [
+              '--no-sandbox',
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage'
+            ]
           });
-          console.log('Browser launched successfully with executable path strategy');
+          console.log('Browser launched successfully with minimal strategy');
         } catch (error3) {
-          console.error('All browser launch strategies failed, falling back to simple scan...');
+          console.log('Minimal launch failed, trying with executable path...');
+          launchStrategy = 'executable-path';
           
-          // Fallback to simple scan when browser launch fails
           try {
-            console.log('Initiating simple scan fallback...');
-            
-            // Import and use simple scan logic
-            const { performSimpleScan } = await import('@/lib/simple-scan');
-            const simpleResults = await performSimpleScan(url);
-            
-            console.log('Simple scan completed successfully');
-            
-            // Return fallback results
-            return NextResponse.json({
-              url,
-              timestamp: new Date().toISOString(),
-              totalIssues: simpleResults.issues.length,
-              issues: simpleResults.issues,
-              summary: {
-                axe: 0,
-                pa11y: 0,
-                simple: simpleResults.issues.length
-              },
-              note: 'Full scan failed, using simple scan as fallback',
-              metadata: {
-                launchStrategy: 'fallback',
-                scanType: 'simple-fallback'
-              }
+            // Strategy 4: With executable path
+            browser = await chromium.launch({
+              headless: true,
+              executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH || undefined,
+              args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
+            console.log('Browser launched successfully with executable path strategy');
+          } catch (error4) {
+            console.error('All browser launch strategies failed, falling back to simple scan...');
             
-          } catch (fallbackError) {
-            console.error('Fallback scan also failed:', fallbackError);
-            throw new Error('Unable to launch browser and fallback scan failed');
+            // Fallback to simple scan when browser launch fails
+            try {
+              console.log('Initiating simple scan fallback...');
+              
+              // Import and use simple scan logic
+              const { performSimpleScan } = await import('@/lib/simple-scan');
+              const simpleResults = await performSimpleScan(url);
+              
+              console.log('Simple scan completed successfully');
+              
+              // Return fallback results
+              return NextResponse.json({
+                url,
+                timestamp: new Date().toISOString(),
+                totalIssues: simpleResults.issues.length,
+                issues: simpleResults.issues,
+                summary: {
+                  axe: 0,
+                  pa11y: 0,
+                  simple: simpleResults.issues.length
+                },
+                note: 'Full scan failed, using simple scan as fallback',
+                metadata: {
+                  launchStrategy: 'fallback',
+                  scanType: 'simple-fallback'
+                }
+              });
+              
+            } catch (fallbackError) {
+              console.error('Fallback scan also failed:', fallbackError);
+              throw new Error('Unable to launch browser and fallback scan failed');
+            }
           }
         }
       }

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Issue, SuggestResponse } from '@/lib/types';
 
 interface ScanResult {
@@ -36,10 +37,10 @@ interface ScanResultsProps {
 
 export default function ScanResults({ results }: ScanResultsProps) {
   const [isPaidTier, setIsPaidTier] = useState(false);
-  const [loadingStates, setLoadingStates] = useState<Record<string, boolean>>({});
-  const [suggestions, setSuggestions] = useState<Record<string, SuggestResponse>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [showAIModal, setShowAIModal] = useState(false);
+  const [includeAI, setIncludeAI] = useState(true);
 
   const getSeverityColor = (severity: string) => {
     switch (severity.toLowerCase()) {
@@ -69,6 +70,34 @@ export default function ScanResults({ results }: ScanResultsProps) {
     }
   };
 
+  const handleGenerateFullReport = async () => {
+    console.log('Opening modal...');
+    setShowAIModal(true);
+    console.log('Modal state set to true');
+  };
+
+  const handleCloseModal = () => {
+    console.log('Closing modal...');
+    setShowAIModal(false);
+  };
+
+  // Handle Escape key to close modal
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && showAIModal) {
+        handleCloseModal();
+      }
+    };
+
+    if (showAIModal) {
+      document.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showAIModal]);
+
   const handleDownloadPDF = async () => {
     setPdfLoading(true);
     setErrors(prev => ({ ...prev, pdf: '' }));
@@ -93,7 +122,11 @@ export default function ScanResults({ results }: ScanResultsProps) {
       const response = await fetch('/api/report/pdf', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scan: scanData })
+        body: JSON.stringify({ 
+          scan: scanData,
+          includeAI: includeAI,
+          tier: isPaidTier ? 'paid' : 'free'
+        })
       });
 
       if (!response.ok) {
@@ -118,6 +151,8 @@ export default function ScanResults({ results }: ScanResultsProps) {
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
+      
+      setShowAIModal(false);
     } catch (error) {
       setErrors(prev => ({ 
         ...prev, 
@@ -128,43 +163,7 @@ export default function ScanResults({ results }: ScanResultsProps) {
     }
   };
 
-  const handleGetSuggestion = async (issue: ScanResult) => {
-    const issueKey = `${issue.ruleId}-${issue.selector}`;
-    setLoadingStates(prev => ({ ...prev, [issueKey]: true }));
-    setErrors(prev => ({ ...prev, [issueKey]: '' }));
-    
-    try {
-      const response = await fetch('/api/suggest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          issue: {
-            ruleId: issue.ruleId,
-            message: issue.message,
-            wcag: issue.wcag.join(', '),
-            selector: issue.selector,
-            htmlSnippet: issue.selector
-          },
-          tier: isPaidTier ? 'paid' : 'free'
-        })
-      });
 
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to get suggestion');
-      }
-
-      const suggestion = await response.json();
-      setSuggestions(prev => ({ ...prev, [issueKey]: suggestion }));
-    } catch (error) {
-      setErrors(prev => ({ 
-        ...prev, 
-        [issueKey]: error instanceof Error ? error.message : 'Failed to get suggestion' 
-      }));
-    } finally {
-      setLoadingStates(prev => ({ ...prev, [issueKey]: false }));
-    }
-  };
 
   return (
     <div className="bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-xl border border-gray-700/50 overflow-hidden">
@@ -269,27 +268,18 @@ export default function ScanResults({ results }: ScanResultsProps) {
           )}
         </div>
 
-        {/* PDF Download and Tier Toggle */}
+        {/* Generate Full Report Button */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mt-4 pt-4 border-t border-gray-600/50">
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
             <button
-              onClick={handleDownloadPDF}
+              onClick={handleGenerateFullReport}
               disabled={pdfLoading}
               className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 text-white rounded-lg hover:from-cyan-600 hover:to-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 text-sm"
             >
-              {pdfLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span className="font-medium">Generating...</span>
-                </>
-              ) : (
-                <>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <span className="font-medium">Download Report</span>
-                </>
-              )}
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+              <span className="font-medium">Generate Full Report (PDF)</span>
             </button>
             
             <div className="flex items-center gap-2">
@@ -354,120 +344,110 @@ export default function ScanResults({ results }: ScanResultsProps) {
             <p className="text-gray-400 text-sm">Excellent! This website appears to be highly accessible.</p>
           </div>
         ) : (
-          results.issues.map((issue, index) => {
-            const issueKey = `${issue.ruleId}-${issue.selector}`;
-            const suggestion = suggestions[issueKey];
-            const isLoading = loadingStates[issueKey];
-            const error = errors[issueKey];
-
-            return (
-              <div key={index} className="px-6 py-4 hover:bg-gray-700/30 transition-colors duration-200">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="flex-1">
-                    <h3 className="text-base font-semibold text-gray-200 mb-2">
-                      {issue.ruleId}
-                    </h3>
-                    <p className="text-gray-400 mb-2 leading-relaxed text-sm">
-                      {issue.message}
-                    </p>
-                    <div className="text-xs text-gray-500 font-mono bg-gray-700/50 px-2 py-1.5 rounded border border-gray-600/50">
-                      {issue.selector}
-                    </div>
-                  </div>
-                  
-                  <div className="flex flex-col gap-2 ml-4">
-                    {/* Severity Chip */}
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(issue.severity)}`}>
-                      {issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1)}
-                    </span>
-                    
-                    {/* Source Chip */}
-                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getSourceColor(issue.source)}`}>
-                      {issue.source.toUpperCase()}
-                    </span>
+          results.issues.map((issue, index) => (
+            <div key={index} className="px-6 py-4 hover:bg-gray-700/30 transition-colors duration-200">
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex-1">
+                  <h3 className="text-base font-semibold text-gray-200 mb-2">
+                    {issue.ruleId}
+                  </h3>
+                  <p className="text-gray-400 mb-2 leading-relaxed text-sm">
+                    {issue.message}
+                  </p>
+                  <div className="text-xs text-gray-500 font-mono bg-gray-700/50 px-2 py-1.5 rounded border border-gray-600/50">
+                    {issue.selector}
                   </div>
                 </div>
                 
-                {/* WCAG Tags */}
-                {issue.wcag.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-3">
-                    {issue.wcag.map((wcag, wcagIndex) => (
-                      <span
-                        key={wcagIndex}
-                        className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-indigo-900/30 to-purple-900/30 text-indigo-300 border border-indigo-700/50"
-                      >
-                        {wcag}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* AI Suggestion Section */}
-                <div className="mt-4 pt-4 border-t border-gray-600/50">
-                  <div className="flex items-center justify-between mb-3">
-                    <h4 className="text-base font-semibold text-gray-200">AI Fix Suggestion</h4>
-                    <button
-                      onClick={() => handleGetSuggestion(issue)}
-                      disabled={isLoading}
-                      className="px-3 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 text-white text-xs font-medium rounded-lg hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-                    >
-                      {isLoading ? (
-                        <>
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Loading...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                          </svg>
-                          <span>Get AI Fix</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Error Message */}
-                  {error && (
-                    <div className="p-3 bg-gradient-to-r from-red-900/30 to-pink-900/30 border border-red-700/50 rounded-lg text-red-300 text-sm mb-3">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        {error}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Suggestion Content */}
-                  {suggestion && (
-                    <div className="bg-gradient-to-r from-green-900/30 to-emerald-900/30 border border-green-700/50 rounded-lg p-4">
-                      <p className="text-gray-300 mb-3 leading-relaxed text-sm">
-                        <strong className="text-gray-200">Summary:</strong> {suggestion.summary}
-                      </p>
-                      
-                      {isPaidTier && suggestion.code && (
-                        <div className="mb-3">
-                          <strong className="text-gray-200 block mb-1 text-sm">Code Fix:</strong>
-                          <pre className="text-xs bg-gray-800/80 backdrop-blur-sm border border-green-700/50 rounded p-3 mt-1 overflow-x-auto font-mono text-gray-300">
-                            {suggestion.code}
-                          </pre>
-                        </div>
-                      )}
-                      
-                      {isPaidTier && suggestion.wcag && (
-                        <p className="text-xs text-gray-400">
-                          <strong className="text-gray-300">WCAG Note:</strong> {suggestion.wcag}
-                        </p>
-                      )}
-                    </div>
-                  )}
+                <div className="flex flex-col gap-2 ml-4">
+                  {/* Severity Chip */}
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getSeverityColor(issue.severity)}`}>
+                    {issue.severity.charAt(0).toUpperCase() + issue.severity.slice(1)}
+                  </span>
+                  
+                  {/* Source Chip */}
+                  <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border ${getSourceColor(issue.source)}`}>
+                    {issue.source.toUpperCase()}
+                  </span>
                 </div>
               </div>
-            );
-          })
+              
+              {/* WCAG Tags */}
+              {issue.wcag.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {issue.wcag.map((wcag, wcagIndex) => (
+                    <span
+                      key={wcagIndex}
+                      className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gradient-to-r from-indigo-900/30 to-purple-900/30 text-indigo-300 border border-indigo-700/50"
+                    >
+                      {wcag}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
         )}
       </div>
+
+      {/* Simple Modal using Portal */}
+      {showAIModal && typeof window !== 'undefined' && createPortal(
+        <div 
+          className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-[999999]"
+          onClick={handleCloseModal}
+        >
+          <div 
+            className="bg-gray-800 rounded-xl shadow-2xl border border-gray-700 max-w-md w-full p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-200">Generate PDF Report</h3>
+              <button
+                onClick={handleCloseModal}
+                className="text-gray-400 hover:text-gray-200"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="includeAI"
+                  checked={includeAI}
+                  onChange={(e) => setIncludeAI(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <label htmlFor="includeAI" className="text-gray-300 text-sm">
+                  Include AI suggestions
+                </label>
+              </div>
+              
+              <div className="text-xs text-gray-400 bg-gray-700 p-3 rounded">
+                <p>Free: Basic summaries | Paid: Detailed fixes</p>
+              </div>
+              
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={handleCloseModal}
+                  className="flex-1 px-4 py-2 text-gray-300 border border-gray-600 rounded hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleDownloadPDF}
+                  disabled={pdfLoading}
+                  className="flex-1 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {pdfLoading ? 'Generating...' : 'Generate PDF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
