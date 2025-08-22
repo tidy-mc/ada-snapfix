@@ -53,13 +53,27 @@ export class WorkerIntegration {
 
     const decoder = new TextDecoder();
     let results: WorkerScanResult | null = null;
+    let buffer = '';
+
+    let timeoutId: NodeJS.Timeout;
+    const startTime = Date.now();
+    const maxDuration = 300000; // 5 minutes
 
     while (true) {
+      // Check for timeout
+      if (Date.now() - startTime > maxDuration) {
+        throw new Error('Stream timeout - no results received within 5 minutes');
+      }
+
       const { done, value } = await reader.read();
       if (done) break;
 
       const chunk = decoder.decode(value);
-      const lines = chunk.split('\n');
+      buffer += chunk;
+      
+      // Process complete lines only
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
 
       for (const line of lines) {
         if (line.startsWith('data: ')) {
@@ -71,6 +85,12 @@ export class WorkerIntegration {
             
             // Try to fix common JSON issues
             let cleanJsonStr = jsonStr;
+            
+            // Skip if JSON is clearly truncated (missing closing brace)
+            if (!cleanJsonStr.includes('}') || cleanJsonStr.split('{').length !== cleanJsonStr.split('}').length) {
+              console.log('Skipping truncated JSON:', cleanJsonStr.substring(0, 100) + '...');
+              continue;
+            }
             
             // Remove any trailing commas before closing braces/brackets
             cleanJsonStr = cleanJsonStr.replace(/,(\s*[}\]])/g, '$1');
@@ -92,6 +112,9 @@ export class WorkerIntegration {
                 console.error('Failed to decode base64 results:', decodeError);
                 throw new Error('Failed to decode scan results');
               }
+            } else if (data.type === 'complete') {
+              // Stream completed successfully
+              console.log('Stream completed successfully');
             } else if (data.type === 'log' && options.onLog) {
               options.onLog(data.message, data.type);
             } else if (data.type === 'error' && options.onLog) {
