@@ -20,6 +20,11 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [chunkedResults, setChunkedResults] = useState<{
+    totalChunks: number;
+    chunks: string[];
+    receivedChunks: number;
+  } | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -42,8 +47,20 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
     // Use streaming for both full and simple scans
     const apiEndpoint = scanType === 'full' ? '/api/scan' : '/api/scan-simple';
 
+    // Add request deduplication
+    let isRequestActive = false;
+    let abortController: AbortController | null = null;
+
     // Use fetch with streaming for full scans
     const startStreamingScan = async () => {
+      // Prevent multiple simultaneous requests
+      if (isRequestActive) {
+        console.log('Scan already in progress, skipping duplicate request');
+        return;
+      }
+
+      isRequestActive = true;
+      abortController = new AbortController();
       try {
         setIsConnected(true);
         setLogs(prev => [...prev, { 
@@ -52,6 +69,13 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
           timestamp: new Date().toISOString() 
         }]);
 
+        // Add timeout to prevent hanging requests
+        const timeoutId = setTimeout(() => {
+          if (abortController) {
+            abortController.abort();
+          }
+        }, 300000); // 5 minutes timeout
+
         const response = await fetch(apiEndpoint, {
           method: 'POST',
           headers: {
@@ -59,7 +83,10 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
             'Accept': 'text/event-stream',
           },
           body: JSON.stringify({ url }),
+          signal: abortController.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -92,7 +119,71 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
                   setIsConnected(false);
                   onComplete?.(data.data);
                   return;
-                } else if (data.type === 'log' || data.type === 'error' || data.type === 'success') {
+                                     } else if (data.type === 'results-encoded-start') {
+                       // Initialize chunked results collection
+                       setLogs(prev => [...prev, {
+                         type: 'log',
+                         message: `Receiving chunked results (${data.totalChunks} chunks)...`,
+                         timestamp: new Date().toISOString()
+                       }]);
+                       // Store chunked results state
+                       setChunkedResults({
+                         totalChunks: data.totalChunks,
+                         chunks: [],
+                         receivedChunks: 0
+                       });
+                     } else if (data.type === 'results-encoded-chunk') {
+                       // Collect chunked results
+                       setChunkedResults((prev: any) => {
+                         if (!prev) return prev;
+                         const newChunks = [...prev.chunks];
+                         newChunks[data.chunkIndex] = data.data;
+                         return {
+                           ...prev,
+                           chunks: newChunks,
+                           receivedChunks: prev.receivedChunks + 1
+                         };
+                       });
+                     } else if (data.type === 'results-encoded-end') {
+                       // Reconstruct and decode chunked results
+                       setChunkedResults((prev: any) => {
+                         if (!prev || prev.receivedChunks !== prev.totalChunks) return prev;
+                         
+                         try {
+                           const fullEncodedData = prev.chunks.join('');
+                           const decodedData = Buffer.from(fullEncodedData, 'base64').toString('utf8');
+                           const parsedResults = JSON.parse(decodedData);
+                           setIsComplete(true);
+                           setIsConnected(false);
+                           onComplete?.(parsedResults.data);
+                         } catch (decodeError) {
+                           console.error('Failed to decode chunked base64 results:', decodeError);
+                           setLogs(prev => [...prev, {
+                             type: 'error',
+                             message: 'Failed to decode chunked scan results',
+                             timestamp: new Date().toISOString()
+                           }]);
+                         }
+                         return null; // Clear for next use
+                       });
+                     } else if (data.type === 'results-encoded') {
+                       // Legacy single chunk base64 results
+                       try {
+                         const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
+                         const parsedResults = JSON.parse(decodedData);
+                         setIsComplete(true);
+                         setIsConnected(false);
+                         onComplete?.(parsedResults.data);
+                         return;
+                       } catch (decodeError) {
+                         console.error('Failed to decode base64 results:', decodeError);
+                         setLogs(prev => [...prev, {
+                           type: 'error',
+                           message: 'Failed to decode scan results',
+                           timestamp: new Date().toISOString()
+                         }]);
+                       }
+                     } else if (data.type === 'log' || data.type === 'error' || data.type === 'success') {
                   setLogs(prev => [...prev, data]);
                 }
               } catch (error) {
@@ -103,20 +194,62 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
         }
       } catch (error) {
         setIsConnected(false);
+        isRequestActive = false;
+        
+        // Don't show error for aborted requests
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('Request was aborted');
+          return;
+        }
+        
         setLogs(prev => [...prev, { 
           type: 'error', 
           message: `Streaming error: ${error instanceof Error ? error.message : 'Unknown error'}`, 
           timestamp: new Date().toISOString() 
         }]);
+        
+        // Try fallback to sync endpoint
+        if (scanType === 'full') {
+          setLogs(prev => [...prev, { 
+            type: 'log', 
+            message: 'Trying fallback sync scan...', 
+            timestamp: new Date().toISOString() 
+          }]);
+          
+          try {
+            const syncResponse = await fetch('/api/scan-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url }),
+              signal: abortController.signal,
+            });
+            
+            if (syncResponse.ok) {
+              const syncResults = await syncResponse.json();
+              setIsComplete(true);
+              setIsConnected(false);
+              onComplete?.(syncResults);
+              return;
+            }
+          } catch (syncError) {
+            console.error('Sync fallback also failed:', syncError);
+          }
+        }
+        
         onError?.(error instanceof Error ? error.message : 'Streaming failed');
       }
     };
 
     startStreamingScan();
 
-    return () => {
-      // Cleanup will be handled by the fetch request
-    };
+             return () => {
+           // Cleanup: abort any ongoing request
+           if (abortController) {
+             abortController.abort();
+           }
+           isRequestActive = false;
+           setChunkedResults(null); // Clear chunked results
+         };
   }, [isVisible, url, scanType, onComplete, onError]);
 
   const getLogIcon = (type: LogEntry['type']) => {
