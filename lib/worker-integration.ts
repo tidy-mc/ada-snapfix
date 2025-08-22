@@ -82,6 +82,16 @@ export class WorkerIntegration {
 
             if (data.type === 'results') {
               results = data.data;
+            } else if (data.type === 'results-encoded') {
+              // Decode base64 results
+              try {
+                const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
+                const parsedResults = JSON.parse(decodedData);
+                results = parsedResults.data;
+              } catch (decodeError) {
+                console.error('Failed to decode base64 results:', decodeError);
+                throw new Error('Failed to decode scan results');
+              }
             } else if (data.type === 'log' && options.onLog) {
               options.onLog(data.message, data.type);
             } else if (data.type === 'error' && options.onLog) {

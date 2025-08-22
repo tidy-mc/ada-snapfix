@@ -114,6 +114,23 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
                   setIsConnected(false);
                   onComplete?.(data.data);
                   return;
+                } else if (data.type === 'results-encoded') {
+                  // Decode base64 results
+                  try {
+                    const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
+                    const parsedResults = JSON.parse(decodedData);
+                    setIsComplete(true);
+                    setIsConnected(false);
+                    onComplete?.(parsedResults.data);
+                    return;
+                  } catch (decodeError) {
+                    console.error('Failed to decode base64 results:', decodeError);
+                    setLogs(prev => [...prev, { 
+                      type: 'error', 
+                      message: 'Failed to decode scan results', 
+                      timestamp: new Date().toISOString() 
+                    }]);
+                  }
                 } else if (data.type === 'log' || data.type === 'error' || data.type === 'success') {
                   setLogs(prev => [...prev, data]);
                 }
@@ -138,6 +155,35 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
           message: `Streaming error: ${error instanceof Error ? error.message : 'Unknown error'}`, 
           timestamp: new Date().toISOString() 
         }]);
+        
+        // Try fallback to sync endpoint
+        if (scanType === 'full') {
+          setLogs(prev => [...prev, { 
+            type: 'log', 
+            message: 'Trying fallback sync scan...', 
+            timestamp: new Date().toISOString() 
+          }]);
+          
+          try {
+            const syncResponse = await fetch('/api/scan-sync', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url }),
+              signal: abortController.signal,
+            });
+            
+            if (syncResponse.ok) {
+              const syncResults = await syncResponse.json();
+              setIsComplete(true);
+              setIsConnected(false);
+              onComplete?.(syncResults);
+              return;
+            }
+          } catch (syncError) {
+            console.error('Sync fallback also failed:', syncError);
+          }
+        }
+        
         onError?.(error instanceof Error ? error.message : 'Streaming failed');
       }
     };
