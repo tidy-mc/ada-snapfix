@@ -22,6 +22,11 @@ interface WorkerScanResult {
 export class WorkerIntegration {
   private workerUrl: string;
   private workerSyncUrl: string;
+  private chunkedResults: {
+    totalChunks: number;
+    chunks: string[];
+    receivedChunks: number;
+  } | null = null;
 
   constructor() {
     this.workerUrl = process.env.WORKER_SCAN_URL || 'http://192.70.246.109:9999/api/scan';
@@ -102,8 +107,35 @@ export class WorkerIntegration {
 
             if (data.type === 'results') {
               results = data.data;
+            } else if (data.type === 'results-encoded-start') {
+              // Initialize chunked results collection
+              this.chunkedResults = {
+                totalChunks: data.totalChunks,
+                chunks: [],
+                receivedChunks: 0
+              };
+            } else if (data.type === 'results-encoded-chunk') {
+              // Collect chunked results
+              if (this.chunkedResults) {
+                this.chunkedResults.chunks[data.chunkIndex] = data.data;
+                this.chunkedResults.receivedChunks++;
+              }
+            } else if (data.type === 'results-encoded-end') {
+              // Reconstruct and decode chunked results
+              if (this.chunkedResults && this.chunkedResults.receivedChunks === this.chunkedResults.totalChunks) {
+                try {
+                  const fullEncodedData = this.chunkedResults.chunks.join('');
+                  const decodedData = Buffer.from(fullEncodedData, 'base64').toString('utf8');
+                  const parsedResults = JSON.parse(decodedData);
+                  results = parsedResults.data;
+                  this.chunkedResults = null; // Clear for next use
+                } catch (decodeError) {
+                  console.error('Failed to decode chunked base64 results:', decodeError);
+                  throw new Error('Failed to decode chunked scan results');
+                }
+              }
             } else if (data.type === 'results-encoded') {
-              // Decode base64 results
+              // Legacy single chunk base64 results
               try {
                 const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
                 const parsedResults = JSON.parse(decodedData);

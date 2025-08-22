@@ -20,6 +20,11 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [isComplete, setIsComplete] = useState(false);
+  const [chunkedResults, setChunkedResults] = useState<{
+    totalChunks: number;
+    chunks: string[];
+    receivedChunks: number;
+  } | null>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
 
@@ -114,24 +119,71 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
                   setIsConnected(false);
                   onComplete?.(data.data);
                   return;
-                } else if (data.type === 'results-encoded') {
-                  // Decode base64 results
-                  try {
-                    const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
-                    const parsedResults = JSON.parse(decodedData);
-                    setIsComplete(true);
-                    setIsConnected(false);
-                    onComplete?.(parsedResults.data);
-                    return;
-                  } catch (decodeError) {
-                    console.error('Failed to decode base64 results:', decodeError);
-                    setLogs(prev => [...prev, { 
-                      type: 'error', 
-                      message: 'Failed to decode scan results', 
-                      timestamp: new Date().toISOString() 
-                    }]);
-                  }
-                } else if (data.type === 'log' || data.type === 'error' || data.type === 'success') {
+                                     } else if (data.type === 'results-encoded-start') {
+                       // Initialize chunked results collection
+                       setLogs(prev => [...prev, {
+                         type: 'log',
+                         message: `Receiving chunked results (${data.totalChunks} chunks)...`,
+                         timestamp: new Date().toISOString()
+                       }]);
+                       // Store chunked results state
+                       setChunkedResults({
+                         totalChunks: data.totalChunks,
+                         chunks: [],
+                         receivedChunks: 0
+                       });
+                     } else if (data.type === 'results-encoded-chunk') {
+                       // Collect chunked results
+                       setChunkedResults((prev: any) => {
+                         if (!prev) return prev;
+                         const newChunks = [...prev.chunks];
+                         newChunks[data.chunkIndex] = data.data;
+                         return {
+                           ...prev,
+                           chunks: newChunks,
+                           receivedChunks: prev.receivedChunks + 1
+                         };
+                       });
+                     } else if (data.type === 'results-encoded-end') {
+                       // Reconstruct and decode chunked results
+                       setChunkedResults((prev: any) => {
+                         if (!prev || prev.receivedChunks !== prev.totalChunks) return prev;
+                         
+                         try {
+                           const fullEncodedData = prev.chunks.join('');
+                           const decodedData = Buffer.from(fullEncodedData, 'base64').toString('utf8');
+                           const parsedResults = JSON.parse(decodedData);
+                           setIsComplete(true);
+                           setIsConnected(false);
+                           onComplete?.(parsedResults.data);
+                         } catch (decodeError) {
+                           console.error('Failed to decode chunked base64 results:', decodeError);
+                           setLogs(prev => [...prev, {
+                             type: 'error',
+                             message: 'Failed to decode chunked scan results',
+                             timestamp: new Date().toISOString()
+                           }]);
+                         }
+                         return null; // Clear for next use
+                       });
+                     } else if (data.type === 'results-encoded') {
+                       // Legacy single chunk base64 results
+                       try {
+                         const decodedData = Buffer.from(data.data, 'base64').toString('utf8');
+                         const parsedResults = JSON.parse(decodedData);
+                         setIsComplete(true);
+                         setIsConnected(false);
+                         onComplete?.(parsedResults.data);
+                         return;
+                       } catch (decodeError) {
+                         console.error('Failed to decode base64 results:', decodeError);
+                         setLogs(prev => [...prev, {
+                           type: 'error',
+                           message: 'Failed to decode scan results',
+                           timestamp: new Date().toISOString()
+                         }]);
+                       }
+                     } else if (data.type === 'log' || data.type === 'error' || data.type === 'success') {
                   setLogs(prev => [...prev, data]);
                 }
               } catch (error) {
@@ -190,13 +242,14 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
 
     startStreamingScan();
 
-    return () => {
-      // Cleanup: abort any ongoing request
-      if (abortController) {
-        abortController.abort();
-      }
-      isRequestActive = false;
-    };
+             return () => {
+           // Cleanup: abort any ongoing request
+           if (abortController) {
+             abortController.abort();
+           }
+           isRequestActive = false;
+           setChunkedResults(null); // Clear chunked results
+         };
   }, [isVisible, url, scanType, onComplete, onError]);
 
   const getLogIcon = (type: LogEntry['type']) => {
