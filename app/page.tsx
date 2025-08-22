@@ -41,7 +41,7 @@ export default function Home() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!url.trim()) return;
+    if (!url.trim() || isLoading) return; // Prevent multiple submissions
 
     setIsLoading(true);
     setError(null);

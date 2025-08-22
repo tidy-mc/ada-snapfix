@@ -42,8 +42,20 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
     // Use streaming for both full and simple scans
     const apiEndpoint = scanType === 'full' ? '/api/scan' : '/api/scan-simple';
 
+    // Add request deduplication
+    let isRequestActive = false;
+    let abortController: AbortController | null = null;
+
     // Use fetch with streaming for full scans
     const startStreamingScan = async () => {
+      // Prevent multiple simultaneous requests
+      if (isRequestActive) {
+        console.log('Scan already in progress, skipping duplicate request');
+        return;
+      }
+
+      isRequestActive = true;
+      abortController = new AbortController();
       try {
         setIsConnected(true);
         setLogs(prev => [...prev, { 
@@ -52,6 +64,13 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
           timestamp: new Date().toISOString() 
         }]);
 
+        // Add timeout to prevent hanging requests
+        const timeoutId = setTimeout(() => {
+          if (abortController) {
+            abortController.abort();
+          }
+        }, 300000); // 5 minutes timeout
+
         const response = await fetch(apiEndpoint, {
           method: 'POST',
           headers: {
@@ -59,7 +78,10 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
             'Accept': 'text/event-stream',
           },
           body: JSON.stringify({ url }),
+          signal: abortController.signal,
         });
+
+        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
@@ -103,6 +125,14 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
         }
       } catch (error) {
         setIsConnected(false);
+        isRequestActive = false;
+        
+        // Don't show error for aborted requests
+        if (error instanceof Error && error.name === 'AbortError') {
+          console.log('Request was aborted');
+          return;
+        }
+        
         setLogs(prev => [...prev, { 
           type: 'error', 
           message: `Streaming error: ${error instanceof Error ? error.message : 'Unknown error'}`, 
@@ -115,7 +145,11 @@ export default function ScanLogs({ isVisible, url, scanType, onComplete, onError
     startStreamingScan();
 
     return () => {
-      // Cleanup will be handled by the fetch request
+      // Cleanup: abort any ongoing request
+      if (abortController) {
+        abortController.abort();
+      }
+      isRequestActive = false;
     };
   }, [isVisible, url, scanType, onComplete, onError]);
 

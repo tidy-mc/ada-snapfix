@@ -24,8 +24,8 @@ export class WorkerIntegration {
   private workerSyncUrl: string;
 
   constructor() {
-    this.workerUrl = process.env.WORKER_SCAN_URL || '';
-    this.workerSyncUrl = process.env.WORKER_SCAN_SYNC_URL || '';
+    this.workerUrl = process.env.WORKER_SCAN_URL || 'http://192.70.246.109:9999/api/scan';
+    this.workerSyncUrl = process.env.WORKER_SCAN_SYNC_URL || 'http://192.70.246.109:9999/api/scan-sync';
   }
 
   async performStreamingScan(options: WorkerScanOptions): Promise<WorkerScanResult> {
@@ -64,7 +64,21 @@ export class WorkerIntegration {
       for (const line of lines) {
         if (line.startsWith('data: ')) {
           try {
-            const data = JSON.parse(line.slice(6));
+            const jsonStr = line.slice(6).trim();
+            
+            // Skip empty lines
+            if (!jsonStr) continue;
+            
+            // Try to fix common JSON issues
+            let cleanJsonStr = jsonStr;
+            
+            // Remove any trailing commas before closing braces/brackets
+            cleanJsonStr = cleanJsonStr.replace(/,(\s*[}\]])/g, '$1');
+            
+            // Ensure proper string escaping
+            cleanJsonStr = cleanJsonStr.replace(/\\/g, '\\\\');
+            
+            const data = JSON.parse(cleanJsonStr);
 
             if (data.type === 'results') {
               results = data.data;
@@ -75,6 +89,20 @@ export class WorkerIntegration {
             }
           } catch (parseError) {
             console.error('Failed to parse worker response:', parseError);
+            console.error('Problematic JSON string:', line.slice(6));
+            
+            // Try to extract partial data if possible
+            try {
+              const partialData = JSON.parse(line.slice(6) + '"}');
+              if (partialData.type === 'log' && options.onLog) {
+                options.onLog(partialData.message || 'Partial log data', partialData.type);
+              }
+            } catch (partialError) {
+              // If all parsing fails, just log the raw message
+              if (options.onLog) {
+                options.onLog(`Raw message: ${line.slice(6)}`, 'log');
+              }
+            }
           }
         }
       }
